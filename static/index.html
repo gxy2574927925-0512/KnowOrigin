@@ -1,0 +1,1436 @@
+﻿<!doctype html>
+<!-- 默认布局 / 主题：Agent 工作台 + 浅色。app.js 读 localStorage 后会立刻用
+     真实选择覆盖这两个属性，这里只是让首帧（JS 执行前）就是默认形态，不闪一下学术极简。
+     改默认值时这两处要一起改：normalizeUi 的兜底 + 下面这两个属性。 -->
+<html lang="zh-CN" data-ui="agent" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="知源：由项目材料驱动的本地 AI 学习工作台">
+  <title>知源 KnowOrigin</title>
+  <!-- PWA：可添加到手机主屏幕，全屏独立运行 -->
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/knoworigin-favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/knoworigin-favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/knoworigin-icon-180.png">
+  <meta name="theme-color" content="#3457e8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="知源">
+<link rel="stylesheet" href="/static/styles.css?v=20261007-card-answer-collapsed">
+<link rel="stylesheet" href="/static/styles-passport.css?v=20261006-passport-v10">
+  <!-- classic 浅色配色回退层：必须排在 styles.css 之后，才能压住被迁到 token 的暖色。
+       只带 html[data-ui="classic"]:where(:not([data-theme="dark"])) 作用域，深色下让位给
+       styles.css 的 html[data-theme="dark"] 规则（否则 classic 深色 = 白底浅字）。 -->
+    <link rel="stylesheet" href="/static/classic-palette.css?v=20261005-morandi1">
+    <!-- Agent 工作台布局：必须排在 styles.css 之后，才能靠加载顺序覆盖它 -->
+    <link rel="stylesheet" href="/static/agent-layout.css?v=20261007-sidebar-tree1">
+  <link rel="stylesheet" href="/static/styles-literature.css?v=20261006-topbar-icon-fix">
+  <!-- 海小棠桌宠：陪伴关怀模块（低侵入，独立前缀，登录后展示） -->
+  <link rel="stylesheet" href="/static/hxt-pet.css?v=20260930-hxt-checklist-ask">
+  <!-- KaTeX 已本地化到 static/vendor/：校园网 / VPN / 断网环境下公式仍可渲染 -->
+  <link rel="stylesheet" href="/static/vendor/katex.min.css">
+  <!-- 质感与交互增强层：全部规则用 :where() 包裹（优先级 0），只填空不覆盖，
+       必须排在最后才能兜住所有主题/布局分支。删掉它只会"变糙"，不会出错。 -->
+  <link rel="stylesheet" href="/static/styles-polish.css?v=20261006-polish-v2">
+  <!-- 沉浸感与高级黑增强层：强选择器"定调"（与 polish 层的 :where 填空相反），
+       重点重塑深色模式与五个阅读场景（文档/卡片/测验/图谱/概览）。
+       必须排在 polish 之后；删掉只会退回普通深色，不会报错。 -->
+  <link rel="stylesheet" href="/static/styles-immersive.css?v=20261006-immersive-v6">
+  <script>
+    window.MathJax = {
+      // \boldsymbol 在 MathJax v3 属于独立扩展（非 base/ams），不加载会导致
+      // \boldsymbol{\mu}_{t} 解析失败 → 走 pending 分支残留原始 LaTeX
+      loader: { load: ["[tex]/boldsymbol"] },
+      tex: {
+        inlineMath: [["\\(", "\\)"], ["$", "$"]],
+        displayMath: [["\\[", "\\]"], ["$$", "$$"]],
+        processEscapes: true,
+        packages: {"[+]": ["ams", "boldsymbol"]},
+      },
+      options: { skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"] },
+      startup: { typeset: false },
+    };
+  </script>
+  <!-- KaTeX 本地优先，保证公式主渲染路径零外部依赖 -->
+  <script defer src="/static/vendor/katex.min.js"></script>
+  <!--
+    MathJax 只是复杂公式的补充增强。不能把 CDN 脚本放在首屏 HTML 里：即使标记为
+    async，浏览器仍可能把它计入文档的 load 依赖；校园网 / VPN 访问不到 CDN 时，
+    页面会一直显示“正在加载”，但登录卡片其实已经画出来了。首屏先用本地 KaTeX，
+    页面 load 完成后默认不再访问外网；需要时显式加 ?mathjax=1 才后台加载 MathJax，
+    失败也不影响登录和项目界面。
+  -->
+  <script>
+    (function () {
+      function loadMathJaxAfterFirstPaint() {
+        // 默认关闭外网增强：本地 KaTeX 已覆盖常用公式，避免不可达 CDN 在后台
+        // 重新让 Edge 显示“正在加载”。需要 MathJax 时可显式访问 ?mathjax=1。
+        if (!new URLSearchParams(window.location.search).has("mathjax")) return;
+        if (window.__MathJaxDeferredRequested || window.__MathJaxUnavailable) return;
+        window.__MathJaxDeferredRequested = true;
+        var script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js";
+        script.async = true;
+        script.crossOrigin = "anonymous";
+        script.onload = function () {
+          window.dispatchEvent(new Event("knoworigin:mathjax-ready"));
+        };
+        script.onerror = function () {
+          window.__MathJaxUnavailable = true;
+        };
+        document.head.appendChild(script);
+      }
+      if (document.readyState === "complete") {
+        window.setTimeout(loadMathJaxAfterFirstPaint, 1200);
+      } else {
+        window.addEventListener("load", function () {
+          window.setTimeout(loadMathJaxAfterFirstPaint, 1200);
+        }, { once: true });
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="error-banner" class="error-banner hidden" role="alert">
+    <span id="error-message"></span>
+    <div class="error-actions">
+      <button id="retry-button" class="text-button hidden" type="button">重试</button>
+      <button id="dismiss-error" class="text-button" type="button">关闭</button>
+    </div>
+  </div>
+
+  <!-- 登录壳默认可见：脚本或浏览器扩展加载失败时也不能让用户看到整页白屏。 -->
+  <section id="auth-shell" class="auth-shell" aria-labelledby="auth-title">
+    <div class="tju-decor" aria-hidden="true">
+      <svg class="tju-building" viewBox="0 0 640 150">
+        <g fill="currentColor">
+          <rect x="266" y="46" width="108" height="104"/>
+          <rect x="286" y="10" width="68" height="40"/>
+          <polygon points="320,0 300,12 340,12"/>
+          <circle cx="320" cy="32" r="7" fill="none" stroke="currentColor" stroke-width="3"/>
+          <rect x="150" y="86" width="116" height="64"/>
+          <rect x="374" y="86" width="116" height="64"/>
+          <path d="M286 150 v-34 a20 20 0 0 1 40 0 v34 z" opacity="0.35"/>
+        </g>
+      </svg>
+    </div>
+    <form id="auth-form" class="auth-card">
+      <div class="auth-brand">
+        <span class="course-brand-mark"><img class="ko-brand-img" src="/static/icon.svg" alt="" aria-hidden="true"></span>
+        <div>
+          <p class="eyebrow">KnowOrigin Account</p>
+          <h1 id="auth-title">登录知源</h1>
+        </div>
+      </div>
+      <p class="auth-copy">每个账号拥有独立的项目、资料、对话和笔记。</p>
+      <label>邮箱
+        <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+      </label>
+      <label>密码
+        <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required>
+      </label>
+      <label id="auth-name-field" class="hidden">昵称
+        <input id="auth-name" name="name" autocomplete="name" maxlength="80">
+      </label>
+      <p id="auth-feedback" class="config-feedback" role="status" aria-live="polite">页面已加载，请输入账号密码登录。</p>
+      <button id="auth-submit" class="primary-button" type="submit">登录</button>
+      <button id="auth-mode-toggle" class="text-button" type="button">没有账号？注册</button>
+    </form>
+  </section>
+
+  <main id="workspace" class="workspace hidden">
+    <!-- Agent 工作台布局：图标栏 + 项目/会话侧栏（只在 html[data-ui="agent"] 下显示） -->
+    <nav id="agent-rail" class="agent-rail" aria-label="学习产出与全局功能">
+      <span class="agent-rail-logo"><img class="ko-brand-img" src="/static/icon.svg" alt="" aria-hidden="true"></span>
+      <button id="agent-sessions-toggle" class="agent-rail-btn" type="button" aria-controls="agent-sessions" aria-expanded="true" aria-label="收起项目与会话侧栏" title="收起项目与会话侧栏">
+        <span class="agent-rail-glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 6.2 8.4 12l5.8 5.8"></path></svg></span>
+      </button>
+      <span class="agent-rail-sep"></span>
+      <button class="agent-rail-btn" data-agent-feature="framework" aria-label="知识框架" title="知识框架"><span class="agent-rail-glyph">⌘</span></button>
+      <button class="agent-rail-btn" data-agent-feature="overview" aria-label="学习概览" title="学习概览"><span class="agent-rail-glyph">◔</span></button>
+      <button class="agent-rail-btn" data-agent-feature="cards" aria-label="知识卡片" title="知识卡片"><span class="agent-rail-glyph">▣</span></button>
+      <button class="agent-rail-btn" data-agent-feature="quiz" aria-label="小测验" title="小测验"><span class="agent-rail-glyph">✓</span></button>
+      <button class="agent-rail-btn" data-agent-feature="favorites" aria-label="我的笔记" title="我的笔记">
+        <span class="agent-rail-glyph">✦</span>
+        <span id="agent-rail-favorite-count" class="agent-rail-badge hidden">0</span>
+      </button>
+      <!-- 英语词汇入口：图标 + 走模块自己暴露的函数（english-vocab-ui.js 顶层赋值的 window.enVocabOpenView） -->
+      <button class="agent-rail-btn" data-agent-module="english" aria-label="英语词汇" title="英语词汇">
+        <span class="agent-rail-glyph agent-rail-glyph-text">EN</span>
+      </button>
+      <span class="agent-rail-sep"></span>
+      <button class="agent-rail-btn" data-agent-action="literature" aria-label="文章阅读" title="文章阅读"><span class="agent-rail-glyph agent-rail-glyph-text">文</span></button>
+      <span class="agent-rail-spring"></span>
+      <button class="agent-rail-btn" data-agent-action="settings" aria-label="设置" title="设置">
+        <span class="agent-rail-glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.02 7.02 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.55-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.6 7.6 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.39 1.03.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.55 1.62-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58a7.6 7.6 0 0 0 0-1.88Z"></path><circle cx="12" cy="12" r="3"></circle></svg></span>
+      </button>
+    </nav>
+
+    <aside id="agent-sessions" class="agent-sessions" aria-label="项目与会话">
+      <div class="agent-sessions-head">
+        <button id="agent-open-calendar" class="agent-calendar-entry" type="button" title="学习台历 · 打卡与冲刺计划">
+          <span class="agent-calendar-ic">▦</span>
+          <span class="agent-calendar-text"><strong>学习台历</strong><small>打卡 · 冲刺计划</small></span>
+          <span id="agent-calendar-streak" class="agent-calendar-streak" hidden>0</span>
+        </button>
+        <button id="agent-new-session" class="agent-new-session" type="button"><span>＋</span><span>新建会话</span></button>
+      </div>
+      <div id="agent-session-list" class="agent-session-list" role="tree" aria-label="项目下的会话"></div>
+      <div class="agent-sessions-foot">
+        <button id="agent-new-project" class="agent-sessions-foot-btn" type="button"><span>＋</span><span>新建项目</span></button>
+      </div>
+    </aside>
+
+    <aside id="sources-panel" class="panel sources-panel">
+      <!-- Agent 布局：项目资料变成对话框式浮层，这行标题栏只在该布局显示 -->
+      <div class="agent-overlay-head" id="sources-overlay-head">
+        <div><p class="eyebrow">Project</p><h2>项目资料</h2></div>
+        <button id="sources-overlay-close" class="agent-overlay-close" type="button" aria-label="关闭项目资料" title="关闭（Esc）"><span>✕</span></button>
+      </div>
+      <div class="course-bar" aria-label="知源工作台">
+        <a class="course-brand" href="/" aria-label="知源首页">
+          <span class="course-brand-mark"><img class="ko-brand-img" src="/static/icon.svg" alt="" aria-hidden="true"></span>
+          <span>
+            <strong>知源</strong>
+            <small>KNOWORIGIN · 本地学习工作台</small>
+          </span>
+        </a>
+        <button id="course-settings-button" class="settings-button" type="button" aria-label="打开设置" aria-haspopup="dialog" aria-controls="settings-dialog" title="设置">
+          <svg class="settings-gear" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87c-.12.21-.08.46.12.61l2.03 1.58c-.05.3-.07.63-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.32.59.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.48.41h3.84c.24 0 .46-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.1.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58ZM12 15.6A3.6 3.6 0 1 0 12 8.4a3.6 3.6 0 0 0 0 7.2Z"/></svg>
+          <span class="settings-button-label">设置</span>
+        </button>
+      </div>
+
+      <div class="project-switcher source-project-switcher">
+        <button id="new-project-button" class="primary-button new-project-button" type="button">
+          <span aria-hidden="true">＋</span>
+          <span>新建项目</span>
+        </button>
+      </div>
+
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Sources</p>
+          <h1>项目来源</h1>
+        </div>
+        <span id="source-count" class="count-pill">0</span>
+      </div>
+
+      <label class="dropzone" for="file-input">
+        <input id="file-input" type="file" multiple accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.txt">
+        <span class="drop-icon">＋</span>
+        <strong>选择项目资料</strong>
+        <small>PDF、Word、PPT、图片或 TXT</small>
+      </label>
+
+      <div id="pending-files" class="pending-files"></div>
+      <div class="source-actions">
+        <button id="paste-button" class="secondary-button" type="button">粘贴文本</button>
+      </div>
+
+      <div class="section-divider"><span>已导入</span></div>
+      <div id="source-list" class="source-list empty-state">
+        <p>这里会显示当前项目的来源。</p>
+      </div>
+
+      <button id="build-framework-button" class="build-button" type="button">
+        <span>生成 / 更新知识框架</span>
+        <small>只依据已上传内容</small>
+      </button>
+      <div id="build-progress" class="build-progress hidden" role="status" aria-live="polite">
+        <div class="build-progress-heading">
+          <strong id="build-progress-label">准备解析来源</strong>
+          <span id="build-progress-percent">0%</span>
+        </div>
+        <div class="build-progress-track" aria-hidden="true"><i id="build-progress-bar"></i></div>
+        <ol class="build-stages" aria-label="知识框架构建进度">
+          <li data-build-stage="parse">解析来源</li>
+          <li data-build-stage="extract">提取主题</li>
+          <li data-build-stage="link">建立关联</li>
+          <li data-build-stage="render">生成图谱</li>
+        </ol>
+      </div>
+      <p class="privacy-note">文件先发送到本机服务；本地 OCR 不可用时，图片会交由已配置的视觉模型识别。模型密钥不会进入浏览器。</p>
+    </aside>
+
+    <div
+      class="panel-resizer"
+      data-resizer="left"
+      role="separator"
+      aria-label="调整项目来源与学习助手的宽度"
+      aria-controls="sources-panel agent-panel"
+      aria-orientation="vertical"
+      aria-keyshortcuts="ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight Home"
+      tabindex="0"
+      title="左右拖动调整宽度；双击恢复默认"
+    >
+      <span class="resizer-grip" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="resize-hint" aria-hidden="true"></span>
+    </div>
+
+    <section id="agent-panel" class="panel agent-panel">
+      <div class="agent-header">
+        <div>
+          <p class="eyebrow">Learning Agent</p>
+          <div class="project-title-switcher">
+            <h2 class="agent-title-heading">
+              <button id="project-menu-button" class="project-title-button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="project-list">
+                <span id="agent-title">从项目材料开始探索</span>
+                <span class="project-title-caret" aria-hidden="true"></span>
+              </button>
+            </h2>
+            <div id="project-list" class="project-list project-title-menu hidden" role="listbox" aria-label="项目列表"></div>
+          </div>
+        </div>
+        <div class="agent-header-actions">
+          <button
+            id="evidence-button"
+            class="evidence-button"
+            type="button"
+            title="本轮回答的依据：这一问读了哪些资料、调了哪些工具"
+            aria-label="查看本轮回答的依据"
+            aria-expanded="false"
+            aria-controls="evidence-panel"
+          >
+            <span class="evidence-button-icon" aria-hidden="true">依</span>
+            <span class="evidence-button-label">回答依据</span>
+          </button>
+          <button
+            id="article-reader-button"
+            class="article-reader-button"
+            type="button"
+            title="进入文章阅读，精读论文与资料"
+            aria-label="进入文章阅读"
+          >
+            <span class="article-reader-icon" aria-hidden="true">文</span>
+            <span class="article-reader-label">文章阅读</span>
+          </button>
+          <button
+            id="streak-badge"
+            class="streak-badge"
+            type="button"
+            title="今日学习连续打卡 · 点击查看学习日历"
+            aria-label="学习连续天数，点击查看学习日历"
+            hidden
+          >
+            <span class="streak-flame" aria-hidden="true">🔥</span>
+            <span id="streak-count" class="streak-count">0</span>
+            <span class="streak-suffix">天</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="conversation" class="conversation">
+        <article class="message assistant-message">
+          <span class="avatar assistant-brand-avatar"><img class="assistant-brand-img" src="/static/icon.svg" alt="知源助手"></span>
+          <div>
+            <p>先创建项目并上传资料。我会把回答映射到知识框架，但一次提问不会直接把节点标记为“已掌握”。<br>也可以直接问我「怎么使用知源」，我会给你一份使用说明。</p>
+          </div>
+        </article>
+      </div>
+
+      <div id="suggested-questions" class="suggested-questions" hidden>
+        <div class="suggested-questions-head">
+          <span class="suggested-questions-title">💡 试试这样问</span>
+          <span class="suggested-questions-actions">
+            <button id="suggested-refresh" class="suggested-refresh" type="button" title="换一批推荐问题" aria-label="换一批推荐问题">换一批</button>
+            <button id="suggested-hide" class="suggested-hide" type="button" title="隐藏推荐问题" aria-label="隐藏推荐问题">✕ 隐藏</button>
+            <button id="suggested-restore-inline" class="suggested-restore-inline" type="button" title="恢复显示推荐问题" aria-label="恢复显示推荐问题" hidden>显示</button>
+          </span>
+        </div>
+        <div id="suggested-questions-list" class="suggested-questions-list"></div>
+      </div>
+      <button id="suggested-restore" class="suggested-restore" type="button" hidden>💡 推荐问题已隐藏，点击恢复</button>
+
+      <form id="composer" class="composer">
+        <div id="problem-image-preview" class="problem-image-preview hidden" aria-live="polite"></div>
+        <textarea id="message-input" rows="1" aria-keyshortcuts="Enter Shift+Enter" placeholder="输入知识问题、粘贴题目截图…"></textarea>
+        <div class="composer-footer">
+          <div class="composer-tools">
+            <!-- Agent 工作台：项目资料改成对话框式浮层，入口搬进输入框左侧 -->
+            <button id="agent-import-button" class="agent-import-button" type="button"
+                    title="导入项目资料" aria-label="导入项目资料" aria-expanded="false"><span>＋</span></button>
+            <!-- A 线：Agent 模式开关（打开=对话走 Function Calling 工具链，关闭=普通 RAG 问答） -->
+            <!-- 默认关闭（aria-pressed="false"）：首帧就是普通问答，app.js 的 syncChatAgentToggle
+                 会按 localStorage 里的真实偏好再校正一次。 -->
+            <button id="chat-agent-toggle" class="composer-tool-toggle" type="button" aria-pressed="false"
+                    title="Agent 模式：AI 自己检索资料、查掌握度、按需改知识库。点一下切回普通问答。">
+              <span aria-hidden="true">🛠</span>
+              <span class="composer-tool-toggle-text">Agent</span>
+            </button>
+          </div>
+          <div class="composer-actions">
+            <button id="voice-input-button" class="voice-input-button" type="button" title="语音输入" aria-label="语音输入">
+              <svg class="voice-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"></path>
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+                <path d="M12 18v4"></path>
+                <path d="M8 22h8"></path>
+              </svg>
+            </button>
+            <button id="send-button" class="send-button" type="submit">发送</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <div
+      class="panel-resizer"
+      data-resizer="right"
+      role="separator"
+      aria-label="调整学习助手与学习产出的宽度"
+      aria-controls="agent-panel studio-panel"
+      aria-orientation="vertical"
+      aria-keyshortcuts="ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight Home"
+      tabindex="0"
+      title="左右拖动调整宽度；双击恢复默认"
+    >
+      <span class="resizer-grip" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="resize-hint" aria-hidden="true"></span>
+    </div>
+
+    <aside id="studio-panel" class="panel studio-panel" aria-label="学习产出">
+      <div class="panel-heading studio-heading">
+        <div class="studio-heading-title">
+          <p class="eyebrow">Studio</p>
+          <!-- Agent 布局：标题栏只留「返回对话 + 当前功能名 + 右侧动作」。
+               固定写死的「学习产出」在这里没有信息量（点图标栏已经知道自己在哪），故改成动态标题。 -->
+          <h2 id="studio-title">学习产出</h2>
+        </div>
+        <!-- 学习产出功能导航：收成下拉。
+             .feature-button 全部保留在 DOM 里（switchFeature 的高亮、updateFeatureButtons
+             的生成态、english-vocab-ui 注入的英语词汇页签都还指向它们），
+             只是默认收进 .feature-nav-menu 里不显示。 -->
+        <div class="feature-nav-shell">
+          <button id="feature-nav-trigger" class="feature-nav-trigger" type="button"
+                  aria-haspopup="true" aria-expanded="false" aria-controls="feature-nav-menu">
+            <span class="feature-nav-trigger-icon feature-icon" aria-hidden="true">⌘</span>
+            <span id="feature-nav-trigger-label">知识框架</span>
+            <span class="feature-nav-caret" aria-hidden="true">▾</span>
+          </button>
+          <nav id="feature-nav-menu" class="feature-grid feature-nav-menu" aria-label="学习功能">
+            <button class="feature-button active" data-feature="framework" type="button">
+              <span class="feature-icon">⌘</span>
+              <span>知识框架</span>
+            </button>
+            <button class="feature-button" data-feature="overview" type="button">
+              <span class="feature-icon">◔</span>
+              <span>学习概览</span>
+            </button>
+            <button class="feature-button" data-feature="cards" type="button">
+              <span class="feature-icon">▣</span>
+              <span>知识卡片</span>
+            </button>
+            <button class="feature-button" data-feature="quiz" type="button">
+              <span class="feature-icon">✓</span>
+              <span>小测验</span>
+            </button>
+            <button class="feature-button favorites-feature-button" data-feature="favorites" type="button">
+              <span class="feature-icon">✦</span>
+              <span>我的笔记</span>
+              <span id="favorite-count" class="feature-count hidden">0</span>
+            </button>
+          </nav>
+        </div>
+        <div class="studio-heading-actions">
+          <span id="fallback-label" class="fallback-label hidden">演示内容</span>
+          <button id="studio-expand-button" class="studio-expand-button" type="button" aria-expanded="false" aria-label="展开学习产出" title="展开学习产出">
+            <span class="studio-expand-icon" aria-hidden="true">⤢</span>
+            <span class="studio-expand-label">展开</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="studio-output" class="studio-output">
+        <div class="output-empty">
+          <span class="compass">⌘</span>
+          <h3>还没有知识框架</h3>
+          <p>上传来源后，在左侧生成框架。</p>
+        </div>
+      </div>
+    </aside>
+
+  <!-- 本轮回答的依据：点顶栏「回答依据」滑出。
+       ⚠️ 必须是 workspace 的直接子元素并显式钉住 grid-column —— agent 布局是固定 3 列
+       grid（见 agent-layout.css 开头警告）：浮层不给行列就会被挤到第二行，把 .agent-panel 顶掉。
+       放这里而不是 body 下层，是为了能**挤压**对话内容，而不是盖住它。 -->
+  <aside id="evidence-panel" class="evidence-panel" role="complementary" aria-label="本轮回答的依据" hidden>
+    <div
+      class="evidence-resizer"
+      role="separator"
+      aria-label="拖动调整宽度"
+      aria-orientation="vertical"
+      tabindex="0"
+      title="拖动调整宽度 · 双击恢复默认"
+    ></div>
+    <header class="evidence-head">
+      <div class="evidence-head-main">
+        <p class="evidence-head-title">回答依据</p>
+        <p class="evidence-head-sub" id="evidence-summary">这一问读了什么、调了什么</p>
+      </div>
+      <div class="evidence-head-actions">
+        <button
+          id="evidence-expand"
+          class="evidence-icon-btn"
+          type="button"
+          aria-pressed="false"
+          aria-label="切换完整视图"
+          title="完整视图：一次摊开全部依据（再点一次还原）"
+        >
+          <span class="evidence-expand-icon" aria-hidden="true">⤢</span>
+          <span class="evidence-expand-text">完整</span>
+        </button>
+        <button id="evidence-close" class="evidence-icon-btn" type="button" aria-label="关闭" title="关闭（Esc）">
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+    </header>
+    <div class="evidence-stats" id="evidence-stats"></div>
+    <div id="evidence-body" class="evidence-body"></div>
+  </aside>
+</main>
+
+  <!-- 文献精读：与课程工作区平级的独立模式（scholread 阅读器） -->
+  <main id="literature-workspace" class="literature-workspace hidden">
+    <div class="lit-topbar">
+      <!-- 左区：品牌与当前文献主副标题 -->
+      <div class="lit-topbar-left">
+        <a class="course-brand lit-brand-link" href="/" aria-label="知源首页">
+          <span class="course-brand-mark lit-brand-mark"><img class="ko-brand-img" src="/static/icon.svg" alt="" aria-hidden="true"></span>
+          <span class="lit-brand-text">
+            <strong>知源 · 文献</strong>
+            <small>KNOWORIGIN · LITERATURE</small>
+          </span>
+        </a>
+        <div class="lit-brand-divider" aria-hidden="true"></div>
+        <div class="sr-reader-title-wrap" title="当前精读文献">
+          <span id="lit-reader-title">选择一篇文献开始精读</span>
+          <span id="lit-reader-subtitle" class="sr-reader-subtitle"></span>
+        </div>
+      </div>
+
+      <!-- 中区：模式切换胶囊组 -->
+      <div class="lit-topbar-center">
+        <div class="lit-view-pill-group" role="group" aria-label="阅读视图与翻译控制">
+          <button id="lit-view-toggle" class="lit-pill-btn secondary-button" type="button" title="在原页对照与双语流式排版间切换">
+            <span class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7m0-18H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7m0-18v18"/></svg></span>
+            <span>切换视图</span>
+          </button>
+          <button id="lit-translate-all-button" class="lit-pill-btn secondary-button" type="button" aria-pressed="false" disabled title="对全文或全页执行 AI 双语翻译">
+            <span class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+            <span>全文翻译</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 右区：操作与学术工具箱（外部插件由此自动挂载） -->
+      <div id="lit-topbar-actions" class="lit-topbar-actions">
+        <button id="lit-library-toggle" class="secondary-button" type="button" title="打开或关闭文献库管理面板">
+          <span class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
+          <span>我的文献</span>
+        </button>
+        <button id="lit-info-button" class="icon-button" type="button" aria-label="查看文献信息" title="文献元数据与引用导出">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </button>
+        <div class="sr-fontsize" role="group" aria-label="字号调整">
+          <button id="lit-font-minus" class="icon-button" type="button" aria-label="缩小字号" title="缩小字号">A-</button>
+          <button id="lit-font-plus" class="icon-button" type="button" aria-label="增大字号" title="增大字号">A+</button>
+        </div>
+        <button id="lit-settings-button" class="settings-button settings-button-lit" type="button" aria-label="返回项目学习" title="返回项目学习">
+          <svg class="settings-gear" viewBox="0 0 24 24" aria-hidden="true" style="fill:none"><path d="M19 12H5m0 0 6-6m-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="settings-button-label">返回</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="sr-layout">
+      <aside class="sr-col sr-aside" aria-label="阅读助手">
+        <!-- 助手面板专属导航栏（吸附于侧栏顶部） -->
+        <nav class="sr-tabs" role="tablist" aria-label="阅读助手标签">
+          <button class="sr-tab active" type="button" role="tab" aria-selected="true" data-tab="qa"><span class="sr-tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>AI 问答</button>
+          <button class="sr-tab" type="button" role="tab" aria-selected="false" data-tab="toc"><span class="sr-tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></span>目录</button>
+          <button class="sr-tab" type="button" role="tab" aria-selected="false" data-tab="figures"><span class="sr-tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>图表</button>
+          <button class="sr-tab" type="button" role="tab" aria-selected="false" data-tab="keypoints"><span class="sr-tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>阅读重点</button>
+          <button class="sr-tab" type="button" role="tab" aria-selected="false" data-tab="highlights"><span class="sr-tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>高亮</button>
+          <button class="sr-tab" type="button" role="tab" aria-selected="false" data-tab="notes"><span class="sr-tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>笔记</button>
+        </nav>
+
+        <div id="lit-library-panel" class="sr-panel sr-library hidden">
+          <div class="lit-library-actions">
+            <button id="lit-upload-button" class="primary-button" type="button">＋ 导入论文</button>
+            <input id="lit-file-input" type="file" accept=".pdf,.txt" hidden>
+          </div>
+          <div id="lit-import-progress" class="lit-import-progress hidden">
+            <div class="lit-import-progress-heading">
+              <strong>正在上传文件</strong>
+              <span>0%</span>
+            </div>
+            <div class="lit-import-progress-track" aria-hidden="true"><i></i></div>
+            <p class="lit-import-progress-detail">准备上传…</p>
+          </div>
+          <div class="lit-compare-bar" id="lit-synthesis-bar">
+            <div class="lit-compare-status-row">
+              <span class="lit-compare-title">多文献研读</span>
+              <div class="lit-compare-status-right">
+                <span id="lit-compare-count" class="lit-compare-count">已选 0 篇</span>
+                <button id="lit-compare-clear" class="lit-compare-clear-btn hidden" type="button" title="清空已选文献">清空</button>
+              </div>
+            </div>
+            <div class="lit-compare-pill-group" role="group" aria-label="多文献研读分析工具">
+              <button id="lit-compare-button" class="lit-cmp-pill-btn secondary-button" type="button" disabled title="请勾选 2-4 篇文献生成深度 AI 综合对比报告">
+                <span class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+                <span>文本对比</span>
+              </button>
+            </div>
+          </div>
+          <div class="lit-library-filters">
+            <input id="lit-search" type="search" placeholder="搜索标题 / 作者 / 标签" autocomplete="off">
+          </div>
+          <div id="lit-list" class="lit-list empty-state">
+            <p>还没有文献。点击「导入论文」上传 PDF。</p>
+          </div>
+        </div>
+
+        <div class="sr-panel" data-panel="qa">
+          <div id="lit-qa-messages" class="sr-qa-messages"></div>
+          <form id="lit-qa-form" class="sr-qa-form" autocomplete="off">
+            <div id="lit-qa-selbar" class="sr-qa-selbar" hidden></div>
+            <textarea id="lit-qa-input" rows="2" placeholder="针对当前论文提问…" maxlength="2000"></textarea>
+            <button class="primary-button" type="submit">发送</button>
+          </form>
+        </div>
+
+        <div class="sr-panel hidden" data-panel="toc">
+          <div class="sr-toc-filter">
+            <select id="lit-toc-level" class="sr-toc-level-select">
+              <option value="0">全部级别</option>
+              <option value="1">1 级标题</option>
+              <option value="2">2 级标题</option>
+              <option value="3">3 级标题</option>
+              <option value="4">4 级标题</option>
+            </select>
+          </div>
+          <div id="lit-toc-body" class="sr-list-body"></div>
+        </div>
+
+        <div class="sr-panel hidden" data-panel="figures">
+          <div id="lit-figures-body" class="sr-list-body"></div>
+        </div>
+
+        <div class="sr-panel hidden" data-panel="keypoints">
+          <div id="lit-keypoints-body" class="sr-list-body"></div>
+        </div>
+
+        <div class="sr-panel hidden" data-panel="highlights">
+          <div id="lit-highlights-body" class="sr-list-body"></div>
+        </div>
+
+        <div class="sr-panel hidden" data-panel="notes">
+          <div id="lit-notes-body" class="sr-list-body"></div>
+        </div>
+      </aside>
+
+      <div class="sr-aside-resizer" role="separator" aria-orientation="vertical" tabindex="0"
+           title="拖动调整阅读助手宽度" aria-label="拖动调整阅读助手宽度"></div>
+
+      <section class="sr-col sr-reader" aria-label="文章阅读">
+	        <div id="lit-reader-body" class="sr-reader-body">
+          <div class="lit-reader-empty">
+            <span class="compass">文</span>
+            <h3>还没有选中的文献</h3>
+            <p>点击左上角「我的文献」选择一篇，开始阅读、翻译与问答。</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="lit-paste-dialog" aria-labelledby="lit-paste-title-label">
+    <form id="lit-paste-form" class="dialog-card lit-paste-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Paste paper</p>
+          <h2 id="lit-paste-title-label">粘贴论文文本</h2>
+        </div>
+        <button class="icon-button" type="button" data-lit-dialog-close aria-label="关闭">×</button>
+      </div>
+      <label>论文标题（可选）
+        <input id="lit-paste-title" type="text" maxlength="200" placeholder="留空时自动命名">
+      </label>
+      <label>论文正文 / 摘要
+        <textarea id="lit-paste-text" rows="12" placeholder="粘贴论文的正文或摘要文本…" required></textarea>
+      </label>
+      <p class="dialog-note">导入后会触发元数据抽取与摘要翻译。</p>
+      <button class="primary-button" type="submit">导入为文献</button>
+    </form>
+  </dialog>
+
+  <dialog id="lit-compare-dialog" aria-labelledby="lit-compare-title">
+    <div class="dialog-card lit-compare-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Compare papers</p>
+          <h2 id="lit-compare-title">多篇文献对比</h2>
+        </div>
+        <div class="lit-compare-heading-actions">
+          <button class="mini-button lit-compare-refresh" type="button" id="lit-compare-refresh" title="忽略上次结果，重新让 AI 生成一次对比">重新对比</button>
+          <button class="icon-button" type="button" data-lit-dialog-close aria-label="关闭">×</button>
+        </div>
+      </div>
+      <div id="lit-compare-body" class="lit-compare-body"></div>
+    </div>
+  </dialog>
+
+  <dialog id="lit-meta-dialog" aria-labelledby="lit-meta-title">
+    <div class="dialog-card lit-meta-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Metadata</p>
+          <h2 id="lit-meta-title">文献信息</h2>
+        </div>
+        <button class="icon-button" type="button" data-lit-dialog-close aria-label="关闭">×</button>
+      </div>
+      <div id="lit-meta-body" class="lit-meta-body"></div>
+      <div class="lit-meta-note">
+        <label>阅读笔记（本地保存）
+          <textarea id="lit-note" rows="5" placeholder="记录你的理解、疑问与批注…"></textarea>
+        </label>
+      </div>
+      <div id="lit-library-links" class="lit-library-links"></div>
+    </div>
+  </dialog>
+
+  <dialog id="lit-delete-dialog" aria-labelledby="lit-delete-title">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Delete literature</p>
+          <h2 id="lit-delete-title">确认删除文献</h2>
+        </div>
+        <button class="icon-button" type="button" data-lit-dialog-close aria-label="关闭">×</button>
+      </div>
+      <div class="delete-project-card" role="alert">
+        <p>将永久删除</p>
+        <strong id="lit-delete-name" class="delete-project-name"></strong>
+      </div>
+      <p class="delete-project-warning">文献正文、元数据、翻译和问答记录都会一起删除。</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-lit-dialog-close>取消</button>
+        <button id="confirm-lit-delete" class="danger-button" type="button">永久删除</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="project-dialog">
+    <form id="project-form" method="dialog" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">New project</p>
+          <h2>建立独立项目</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <label>学期（选填）
+        <input
+          id="project-term"
+          name="term"
+          list="term-suggestion-list"
+          placeholder="可不填，如：大一上 / 2025 春季 / 项目一期"
+          maxlength="32"
+        >
+        <datalist id="term-suggestion-list">
+          <option value="大一上"></option>
+          <option value="大一下"></option>
+          <option value="大二上"></option>
+          <option value="大二下"></option>
+          <option value="大三上"></option>
+          <option value="大三下"></option>
+          <option value="大四上"></option>
+          <option value="大四下"></option>
+        </datalist>
+        <small>学期可自定义或留空；在校生可直接选大一上~大四下。</small>
+      </label>
+      <label>项目名称
+        <input
+          id="project-subject"
+          name="subject"
+          placeholder="例如：高等数学"
+          maxlength="80"
+          list="tju-course-list"
+          autocomplete="off"
+          required
+        >
+        <datalist id="tju-course-list"></datalist>
+        <small>已内置 116 门天津大学课程，输入课名可自动补全。</small>
+      </label>
+      <p class="dialog-note">不同项目的数据、来源和知识框架完全隔离。</p>
+      <p class="dialog-note">小提示：在课名下拉里点右侧的「导入」标签，可从 GitHub 课程共享仓库一键拉取 README 与课件。</p>
+      <button class="primary-button" type="submit">创建并进入</button>
+    </form>
+  </dialog>
+
+  <!-- 「导入」对话框：批量拉取 superpung/TJU-CourseSharing 课程目录下用户勾选的文件 -->
+  <dialog id="tju-import-dialog" aria-labelledby="tju-import-title">
+    <form id="tju-import-form" class="dialog-card tju-import-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">从 GitHub 课程共享仓库导入</p>
+          <h2 id="tju-import-title">导入：从仓库拉取</h2>
+          <p class="dialog-note tju-import-course"></p>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="tju-import-actions">
+        <span class="tju-import-summary"></span>
+      </div>
+      <div class="tju-import-list" role="group" aria-label="可选文件"></div>
+      <div id="tju-import-progress" class="tju-import-progress hidden">
+        <div class="tju-import-progress-heading">
+          <strong>正在从课程共享站下载文件</strong>
+          <span>0%</span>
+        </div>
+        <div class="tju-import-progress-track" aria-hidden="true"><i></i></div>
+        <p class="tju-import-progress-stage">准备中…</p>
+        <p class="tju-import-progress-file">准备中…</p>
+        <p class="tju-import-progress-note source-import-scan-note hidden"></p>
+      </div>
+      <div class="tju-import-footer">
+        <button class="ghost-button" type="button" data-dialog-cancel>取消</button>
+        <button class="primary-button" type="button" data-action="import-selected">导入所选</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="paste-dialog">
+    <form id="paste-form" method="dialog" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Paste text</p>
+          <h2>粘贴项目文本</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <textarea id="pasted-text" rows="12" placeholder="粘贴讲义、课堂笔记或题目文本…" required></textarea>
+      <button class="primary-button" type="submit">导入当前项目</button>
+    </form>
+  </dialog>
+
+  <dialog id="api-config-dialog" aria-labelledby="api-config-title">
+    <form id="api-config-form" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Local AI service</p>
+          <h2 id="api-config-title">API 配置</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="api-main-grid">
+        <label>API 服务地址
+          <input id="api-base-url" name="base_url" type="url" inputmode="url" maxlength="500" required aria-describedby="api-base-url-help">
+          <small id="api-base-url-help">必须使用 HTTPS；本机地址可使用 HTTP。</small>
+        </label>
+        <label>模型名称
+          <input id="api-model" name="model" maxlength="120" pattern="[A-Za-z0-9._:/-]+" required>
+        </label>
+        <label>API 密钥
+          <span class="secret-field">
+            <input id="api-key" name="api_key" type="password" minlength="8" maxlength="512" autocomplete="off" placeholder="粘贴你自己的密钥（留空则不修改）">
+            <button class="secret-toggle" type="button" data-secret-toggle="api-key" aria-pressed="false" aria-label="显示密钥" title="显示密钥">
+              <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+              <svg class="icon-eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>
+            </button>
+          </span>
+          <small>保存后会加密存在这台机器的 data/ 目录里（Windows 用 DPAPI 绑定当前账户），重启服务不用再填一次；这份文件不在版本控制里，仓库里也不含任何密钥。请到 ai.tju.edu.cn 个人中心获取你自己的一把。</small>
+        </label>
+      </div>
+      <fieldset class="api-vision-group">
+        <legend>视觉模型（扫描件 / 拍照讲义识别，可选）</legend>
+        <label>视觉模型名称
+          <input id="api-vision-model" name="vision_model" maxlength="120" pattern="[A-Za-z0-9._:/-]*" placeholder="留空 = 关闭视觉模型兜底">
+          <small>用于扫描件与拍照讲义的识别兜底；留空即关闭，此时仅用本地 OCR。常用 <code>glm-4v-flash</code>。</small>
+        </label>
+        <label>视觉模型服务地址
+          <input id="api-vision-base-url" name="vision_base_url" type="url" inputmode="url" maxlength="500" placeholder="留空 = 使用上面的 API 服务地址">
+          <small>视觉模型与主模型不是同一家服务商时才需要填写。</small>
+        </label>
+        <label>视觉模型 API 密钥
+          <span class="secret-field">
+            <input id="api-vision-key" name="vision_api_key" type="password" minlength="8" maxlength="512" autocomplete="off" placeholder="留空 = 沿用上面的密钥">
+            <button class="secret-toggle" type="button" data-secret-toggle="api-vision-key" aria-pressed="false" aria-label="显示密钥" title="显示密钥">
+              <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+              <svg class="icon-eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>
+            </button>
+          </span>
+          <small id="api-vision-key-help">留空则使用上面的 API 密钥；仅当视觉模型走不同服务商时才需要单独填写。</small>
+        </label>
+      </fieldset>
+      <div class="api-footer-row">
+        <p id="api-config-feedback" class="config-feedback" role="status" aria-live="polite"></p>
+        <button id="save-api-config" class="primary-button" type="submit">保存并立即生效</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="link-note-dialog" aria-labelledby="link-note-title">
+    <form id="link-note-form" class="dialog-card link-note-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Bidirectional link</p>
+          <h2 id="link-note-title">双链理解</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <p id="link-note-pair" class="link-note-pair"></p>
+      <label>你理解的两个知识点之间的关系
+        <textarea id="link-note-input" rows="4" maxlength="500" placeholder="例如：先掌握「极限」才能理解「导数」——前者是后者的前提。"></textarea>
+        <small id="link-note-help">一句话说清它们是什么关系：上下位 / 因果 / 对比 / 互为前提 / 整体与局部。留空保存即删除这条理解。</small>
+      </label>
+      <p id="link-note-status" class="link-note-status" role="status" aria-live="polite"></p>
+      <div class="link-note-actions">
+        <button id="link-note-ai" class="mini-button" type="button">✨ 让 AI 帮我写一句</button>
+        <button id="link-note-delete" class="mini-button link-note-delete" type="button" hidden>删除理解</button>
+        <button id="link-note-save" class="primary-button" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-card settings-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Preferences</p>
+          <h2 id="settings-title">设置</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="settings-body">
+
+        <div class="settings-group">
+          <p class="settings-group-title">外观</p>
+          <div class="settings-group-body">
+            <div class="settings-row">
+              <span class="settings-row-label">界面布局<small>选择更适合你的工作方式</small></span>
+              <div class="settings-segmented" role="group" aria-label="界面布局">
+                <button class="settings-segmented-btn" type="button" data-ui-value="academic" aria-pressed="false">学术极简</button>
+                <button class="settings-segmented-btn" type="button" data-ui-value="classic" aria-pressed="false">经典工作台</button>
+                <button class="settings-segmented-btn" type="button" data-ui-value="agent" aria-pressed="true">Agent 工作台</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">主题选择</span>
+              <div class="settings-segmented" role="group" aria-label="主题选择">
+                <button class="settings-segmented-btn" type="button" data-theme-value="light" aria-pressed="true">浅色</button>
+                <button class="settings-segmented-btn" type="button" data-theme-value="dark" aria-pressed="false">深色</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">品牌主题</span>
+              <div class="settings-segmented" role="group" aria-label="品牌主题">
+                <button class="settings-segmented-btn" type="button" data-brand-value="default" aria-pressed="true">通用</button>
+                <button class="settings-segmented-btn" type="button" data-brand-value="tju" aria-pressed="false">天大</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">卡片辉光<small>悬停时的发光与光泽，觉得刺眼就关掉</small></span>
+              <div class="settings-segmented" role="group" aria-label="卡片辉光">
+                <button class="settings-segmented-btn" type="button" data-glow-value="off" aria-pressed="true">关闭</button>
+                <button class="settings-segmented-btn" type="button" data-glow-value="on" aria-pressed="false">开启</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">字体大小<small>只放大文字，布局不动</small></span>
+              <div class="settings-segmented" role="group" aria-label="字体大小">
+                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1" aria-pressed="true">标准</button>
+                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1.15" aria-pressed="false">大</button>
+                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1.3" aria-pressed="false">较大</button>
+                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1.45" aria-pressed="false">特大</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <p class="settings-group-title">陪伴与声音</p>
+          <div class="settings-group-body">
+            <label class="settings-switch-row">
+              <span class="settings-row-label">海小棠桌宠开启</span>
+              <input id="settings-pet-toggle" class="settings-switch-input" type="checkbox" role="switch" checked>
+              <span class="settings-switch" aria-hidden="true"></span>
+            </label>
+            <label class="settings-switch-row">
+              <span class="settings-row-label">开启声效</span>
+              <input id="settings-sound-toggle" class="settings-switch-input" type="checkbox" role="switch">
+              <span class="settings-switch" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <p class="settings-group-title">账户</p>
+          <div class="settings-group-body">
+<div class="settings-row settings-row-static">
+            <span class="settings-row-label">当前账号</span>
+            <span class="settings-row-value" id="account-name"></span>
+          </div>
+            <button id="settings-api-button" class="settings-row-button" type="button" aria-haspopup="dialog">
+              <span class="settings-row-button-main">
+                <span class="settings-row-label">API 设置</span>
+                <span class="settings-row-sub">
+                  <span id="settings-health-dot" class="status-dot"></span>
+                  <span id="settings-health-text">检查服务中</span>
+                </span>
+              </span>
+              <span class="settings-row-arrow" aria-hidden="true">›</span>
+            </button>
+            <button id="settings-logout-button" class="settings-row-button settings-row-button-danger" type="button">
+              <span class="settings-row-button-main">
+                <span class="settings-row-label">退出当前账号</span>
+                <span class="settings-row-sub">退出后需要重新登录</span>
+              </span>
+              <span class="settings-row-arrow" aria-hidden="true">›</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <p class="settings-group-title">AI 透明度</p>
+          <div class="settings-group-body">
+            <p class="settings-account-hint">提示词实验室收录 <span data-prompt-lab-count>36</span> 个 AI 任务。这里可以查看并改写每个任务实际使用的提示词——改完保存即对真实调用生效，随时可重置回默认。</p>
+            <button id="settings-prompt-lab-button" class="settings-row-button" type="button" aria-haspopup="dialog">
+              <span class="settings-row-button-main">
+                <span class="settings-row-label">提示词实验室</span>
+                <span class="settings-row-sub">查看并改写 <span data-prompt-lab-count>36</span> 个 AI 任务的提示词</span>
+              </span>
+              <span class="settings-row-arrow" aria-hidden="true">›</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <p class="settings-group-title">使用帮助</p>
+          <div class="settings-group-body">
+            <p class="settings-account-hint">在主界面中间对话框里，也可以直接问我「怎么使用知源」，我会当场给你使用说明。</p>
+            <button id="usage-guide-toggle" class="settings-row-button usage-guide-toggle" type="button" aria-expanded="false" aria-controls="usage-doc-viewer">
+              <span class="settings-row-button-main">
+                <span class="settings-row-label">查看使用说明</span>
+                <span class="settings-row-sub" id="usage-guide-toggle-hint">共十三节完整使用帮助，点击放大阅读</span>
+              </span>
+              <span class="settings-row-arrow" id="usage-guide-toggle-arrow" aria-hidden="true">›</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Agent 工作台专属设置（只在 html[data-ui="agent"] 下显示） -->
+        <div class="settings-group agent-only-settings">
+          <p class="settings-group-title">Agent 工作台</p>
+          <div class="settings-group-body">
+            <label class="settings-switch-row">
+              <span class="settings-row-label">试试这样问<small>顶栏右侧的推荐问题，可拖动、右键取消</small></span>
+              <input id="settings-suggested-toggle" class="settings-switch-input" type="checkbox" role="switch" checked>
+              <span class="settings-switch" aria-hidden="true"></span>
+            </label>
+            <button id="settings-suggested-reset" class="settings-row-button" type="button">
+              <span class="settings-row-button-main">
+                <span class="settings-row-label">重置推荐问题位置</span>
+                <span class="settings-row-sub">把「试试这样问」放回顶栏右上角</span>
+              </span>
+              <span class="settings-row-arrow" aria-hidden="true">›</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </dialog>
+
+  <div id="usage-doc-viewer" class="usage-doc-viewer" role="dialog" aria-modal="true" aria-label="使用说明">
+    <div class="usage-doc-backdrop" data-usage-doc-backdrop></div>
+    <div class="usage-doc-panel" role="document">
+      <div class="usage-doc-topbar">
+        <div class="usage-doc-heading">
+          <span class="usage-doc-title">使用说明</span>
+          <span class="usage-doc-hint">Esc 关闭 · 共十三节，可滚动阅读</span>
+        </div>
+        <button type="button" class="usage-doc-close" data-usage-doc-close aria-label="关闭">✕</button>
+      </div>
+      <div class="usage-doc-body">
+        <div class="usage-guide">
+          <details class="usage-guide-section" open>
+            <summary>一、快速开始（三步上手）</summary>
+            <ol>
+              <li><strong>登录 / 注册</strong>：每个账号拥有独立的项目、资料、对话与笔记。</li>
+              <li><strong>新建项目</strong>：左上角「＋新建项目」，输入名称；学期可自定义或留空（内置 116 门天大课程可补全，也可从共享仓库一键导入）。</li>
+              <li><strong>上传资料并生成框架</strong>：左侧「选择项目资料」上传 PDF / Word / PPT / 图片 / TXT，或点「粘贴文本」；随后点「生成 / 更新知识框架」，等待图谱生成。</li>
+            </ol>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>二、AI 问答（中间主对话）</summary>
+            <ul>
+              <li>在输入框提问即可；粘贴题目截图可整理解题过程。</li>
+              <li>输入框上方有<strong>推荐问题</strong>（基于你的知识框架生成），点「换一批」刷新，点击任意问题直接发送。</li>
+              <li><strong>选中对话中的文字</strong>会弹出浮动菜单：「💬 围绕选中提问」直接追问，「📎 加入输入框」放入输入框补充，「高亮」色板给回答重点着色（保存到笔记）。</li>
+              <li>回答会标注引用来源、关联知识节点，点击「来源」可查看原文；Enter 发送、Shift+Enter 换行。</li>
+              <li>输入框旁边还常驻两个入口：<strong>教学模式</strong>（切换「直接回答 / 引导模式」）与 <strong>AI 记忆</strong>（查看 AI 记住了哪些关于你的信息）。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>三、项目来源（左侧面板）</summary>
+            <ul>
+              <li><strong>上传文件</strong>：支持 PDF、Word、PPT、图片、TXT，可一次多选、拖拽上传。</li>
+              <li><strong>粘贴文本</strong>：讲义、课堂笔记、题目文本直接粘贴导入。</li>
+              <li><strong>勾选对话来源</strong>：提问前可勾选部分资料，AI 只依据勾选内容回答。</li>
+              <li>点来源条目可预览、重命名或删除；文件先发送到本机服务，模型密钥不会进入浏览器。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>四、学习产出（右侧面板）</summary>
+            <ul>
+              <li><strong>知识框架</strong>：脑图 / 双链图谱两种视图；点节点会打开「整理助手」聚焦该节点；点「引导学习」开始苏格拉底式带学；「推荐双链」帮你建立知识点关联；节点掌握度随学习逐步提升。</li>
+              <li><strong>学习概览</strong>：查看整体学习进度、薄弱点与复习建议（复习节奏见第五节）。</li>
+              <li><strong>知识卡片</strong>：自动生成卡片，「再来一批」可换一组，翻面后可自评掌握情况（详见第五节）。</li>
+              <li><strong>小测验</strong>：可选难度（自动/简单/中等/困难）与题型（单选/多选/填空/简答/计算），交卷后自动更新掌握度。</li>
+              <li><strong>我的笔记</strong>：收藏的重要回答与高亮片段，支持颜色分类与复习。</li>
+              <li>标题栏还有两个按钮：<strong>英语词汇</strong>（第六个页签，详见第十节）、<strong>导出知识库</strong>（导出为 Obsidian 可直接打开的 Markdown 库）。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>五、卡片与间隔复习</summary>
+            <ul>
+              <li><strong>复习发生在卡片上</strong>：翻到背面自评「记得 / 模糊 / 忘了」，排期自动推进（FSRS），不需要单独打开复习页面。</li>
+              <li>学习概览页会汇总你的复习节奏：<strong>今日已复习多少、等待复习多少、未来一周什么时候会堆成复习债</strong>，提前避开突击。</li>
+              <li>每日连续学习可点亮顶部「打卡」徽章；点击徽章打开学习台历（详见第八节）。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>六、整理助手与笔记（知识框架节点）</summary>
+            <ul>
+              <li>点知识图谱中的节点 → 右侧弹出「整理助手」面板，可对单个节点做笔记整理。</li>
+              <li>笔记采用<strong>三段式</strong>：一句话摘要 / 要点索引 / 易错或适用条件，每条结论可溯源到来源。</li>
+              <li>AI 生成的是<strong>建议稿</strong>，需你点「批准」后才写入知识库；「补全当前节点笔记」会生成详细的原子笔记建议稿。</li>
+              <li><strong>双链</strong>：建立节点关系时需你说明连接理由，AI 不会擅自建链，保证关联可追溯；「推荐双链 / 缺失节点」与「挖深问题」可扫描整库。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>七、苏格拉底引导与教学节奏</summary>
+            <ul>
+              <li>在节点上点「引导学习」，助手会先诊断你的掌握情况，再通过小问题一步步带你推导，答对前不铺开完整讲解。</li>
+              <li>收敛条三个按钮：<strong>✓ 继续下一问</strong>（已答对，进入下一问）、<strong>📖 查看答案</strong>（直接给出当前这一问的答案与讲解）、<strong>⏹ 停止引导</strong>（结束本轮）。</li>
+              <li>引导中选中对话或笔记预览的文字，可围绕它继续引导。</li>
+              <li><strong>教学模式</strong>（聊天输入框旁切换）：「直接回答」保持正常作答；「引导模式」先给关键概念和「去哪看」、把答案留给你，卡一次放开一级，连卡两轮才直接给结论。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>八、学习台历与备考冲刺</summary>
+            <ul>
+              <li>点击顶部<strong>打卡徽章</strong>打开「学习台历」三栏工作台：左栏按课程组织（每门课下挂一页速查表或学习路径）、中栏月历与当日计划、右栏考期备忘（各科考期 / 考场 / 就绪度，回标到台历格上）。</li>
+              <li>在学习路径页底部点<strong>「按此路径制定冲刺计划」</strong>，选节奏（抢救 3 天 / 冲刺 7 天 / 攻坚 14 天），AI 会把每天任务写具体、写可执行，三阶段稳步推进。</li>
+              <li>冲刺计划与打卡、考期备忘联动：完成情况计入台历，考期临近会自动在台历格上提醒。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>九、文章阅读与文献检索（主界面顶部「文章阅读」入口）</summary>
+            <ul>
+              <li>在主界面顶部点「文章阅读」进入；点右上角「返回」回到项目学习。</li>
+              <li>在「我的文献」面板导入论文（PDF 或粘贴文本），自动抽取元数据、摘要与翻译；面板支持切换「我的文献 / 全球检索」，侧栏展开<strong>期刊检索</strong>与<strong>学者检索</strong>。</li>
+              <li>左侧标签：<strong>AI 问答 / 目录 / 图表 / 阅读重点 / 高亮 / 笔记</strong>；顶部支持「全文翻译」「对比（2–4 篇）」。</li>
+              <li>选中正文文字可高亮、提问；「切换视图」在 PDF 原页对照与文理（双语流式）排版间切换。</li>
+              <li>「多文献研读」栏勾选多篇后可进<strong>综述矩阵</strong>（PRISMA 横向对比，可导出 CSV）；文献库侧栏有<strong>审稿红队</strong>（模拟顶刊审稿）；来源视图里有「研究洞察」与「节点 AI 解释」。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>十、英语学习（学习产出「英语词汇」页签）</summary>
+            <ul>
+              <li><strong>词表与生词本</strong>：内置考研 / 四六级等通用词书兜底（资料导入后优先用你的资料）；生词可手动加或从语料一键采集，词条带发音朗读、例句与词汇拓展（近义词辨析 / 反义词 / 常见搭配）。</li>
+              <li><strong>语料摘录</strong>：从你自己导入的中文 / 英文资料里采词——中文资料由后端转成英文表述，每一片都带术语表，点一下就把生词带原句收进生词本。</li>
+              <li><strong>应试精读工作台</strong>：13 大外刊 + 全国统考原卷，整篇通读与段落级分析、长难句结构化、同义改写链一键入 FSRS、熟词生义雷达。</li>
+              <li>刷完一轮单词可生成<strong>联结短文与助记故事</strong>，把生词串成有画面的故事，可全文朗读。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>十一、AI 记忆与研究洞察</summary>
+            <ul>
+              <li><strong>AI 记忆</strong>（聊天输入框旁入口）：两层槽位——全局画像（AI 推断的关于你的长期偏好）+ 项目级记忆（本项目里推断出的信息）。每格都标注是谁写的、什么时候写的、依据是什么，可改、可删、可整库清空，全程可见。</li>
+              <li><strong>研究洞察</strong>（来源视图）：AI 通读整个知识库，给出可写进综述的论断、资料间的张力、知识空白与下一步研究问题。</li>
+              <li><strong>综述矩阵</strong>（文献阅读中）：按 PRISMA 规范横向抽取多篇论文的动机、方法、数据条件、定量结果与局限，导出 CSV 做综述底稿。</li>
+              <li><strong>审稿红队</strong>（文献库侧栏）：以顶刊 / 顶会审稿人视角对你的研究做四维打分，列出致命弱点与给作者的问题。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>十二、常用设置与快捷键</summary>
+            <ul>
+              <li>右上角齿轮打开设置：主题（浅色/深色）、品牌主题（通用/天大）、海小棠桌宠开关、声效开关、API 设置、退出账号。</li>
+              <li>「AI 透明度」小组：<strong>提示词实验室</strong>（收录 <span data-prompt-lab-count>36</span> 个 AI 任务，逐条查看实际使用的提示词，可改写并随时重置为默认）与 <strong>AI 用量</strong>（token 消耗估算，输入框旁也有入口）。</li>
+              <li>快捷键：Enter 发送、Shift+Enter 换行；Esc 关闭面板 / 弹窗；左右拖动分隔条调宽度、双击恢复默认。</li>
+            </ul>
+          </details>
+
+          <details class="usage-guide-section" open>
+            <summary>十三、数据与隐私</summary>
+            <ul>
+              <li>项目、来源、对话、笔记、卡片与掌握度都保存在你的本机服务里，不同项目完全隔离。</li>
+              <li>模型 API 密钥加密保存在你自己的本机（data/ 目录，Windows 上绑定当前登录账户）与浏览器存储里，重启服务或换浏览器都不必重填；该目录不在版本控制中，仓库里不含任何密钥，可随时在「API 设置」中更换或清空。</li>
+              <li>学习产出标题栏「导出知识库」：导出为标准 Markdown + [[双链]]，不锁进任何私有格式，可直接拖进 Obsidian；导出不改变知源里的任何数据。</li>
+            </ul>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="delete-project-dialog">
+    <form id="delete-project-form" method="dialog" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Delete course</p>
+          <h2>确认删除项目</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="delete-project-card" role="alert">
+        <p>将永久删除</p>
+        <strong id="delete-project-name" class="delete-project-name"></strong>
+      </div>
+      <p class="delete-project-warning">项目来源、知识框架、对话、卡片、测验和笔记都会一起删除。删除后可按 Ctrl+Z 撤销。</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-dialog-cancel>取消</button>
+        <button id="confirm-delete-project" class="danger-button" type="submit">永久删除项目</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chat-session-rename-dialog" aria-labelledby="chat-session-rename-title">
+    <form id="chat-session-rename-form" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Rename session</p>
+          <h2 id="chat-session-rename-title">重命名会话</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <label>会话名称
+        <input id="chat-session-rename-input" name="title" type="text" maxlength="40" required>
+      </label>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-dialog-cancel>取消</button>
+        <button id="confirm-chat-session-rename" class="primary-button" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chat-session-delete-dialog" aria-labelledby="chat-session-delete-title">
+    <form id="chat-session-delete-form" method="dialog" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Delete session</p>
+          <h2 id="chat-session-delete-title">删除会话</h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="delete-project-card" role="alert">
+        <p>将永久删除</p>
+        <strong id="chat-session-delete-name" class="delete-project-name"></strong>
+      </div>
+      <p class="delete-project-warning">该会话里的全部对话记录都会一起删除；项目资料、知识框架与学习产出不受影响。</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-dialog-cancel>取消</button>
+        <button id="confirm-chat-session-delete" class="danger-button" type="submit">删除会话</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="source-preview-dialog" class="source-preview-dialog">
+    <div class="source-preview-card">
+      <div class="dialog-heading source-preview-heading">
+        <div>
+          <p class="eyebrow">Source preview</p>
+          <h2 id="source-preview-title">材料预览</h2>
+          <p id="source-preview-meta" class="source-preview-meta"></p>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭材料预览">×</button>
+      </div>
+      <div id="source-preview-body" class="source-preview-body" aria-live="polite"></div>
+    </div>
+  </dialog>
+
+  <dialog id="study-rename-dialog" aria-labelledby="study-rename-title">
+    <form id="study-rename-form" class="dialog-card">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Rename</p>
+          <h2 id="study-rename-title">重命名<span id="study-rename-kind">学习内容</span></h2>
+        </div>
+        <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <label>新题目
+        <textarea id="study-rename-input" name="title" rows="4" maxlength="500" required></textarea>
+      </label>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-dialog-cancel>取消</button>
+        <button id="confirm-study-rename" class="primary-button" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="undo-toast" class="undo-toast hidden" role="status" aria-live="polite">
+    <span id="undo-message"></span>
+    <button id="undo-button" class="toast-action hidden" type="button">撤销</button>
+    <button id="dismiss-toast" class="toast-dismiss" type="button" aria-label="关闭提示">×</button>
+  </div>
+
+  <script src="/static/streak.js?v=20261001-discuss-kind" defer></script>
+  <script src="/static/course-autocomplete.js?v=20260902-import-dialog" defer></script>
+  <!-- 语义护照组件：必须排在 app.js 之前 —— 它是 IIFE，加载即挂 window.KBPassport，
+       而 app.js 的图谱渲染会直接调它。 -->
+  <script src="/static/kb-passport-ui.js?v=20261006-passport-v8" defer></script>
+  <script src="/static/app.js?v=20261007-kb-note-panel-click" defer></script>
+    <!-- Agent 工作台外壳：必须排在 app.js 之后 —— 它要读写 app.js 的顶层 const state
+         （classic script 共享全局词法环境），顺序反了拿不到 state -->
+    <script src="/static/agent-shell.js?v=20261007-sidebar-tree1" defer></script>
+  <script src="/static/literature.js?v=20261001-aside-drag" defer></script>
+  <!-- 论文全网搜索 & 期刊检索：在文献精读模式注入搜索入口 -->
+  <script src="/static/paper-search-ui.js?v=20261001-aside-drag" defer></script>
+  <script src="/static/journal-search-ui.js?v=20260925-journal-search" defer></script>
+  <!-- 顶刊科研工作台：PRISMA 结构化系统综述矩阵 + 模拟顶刊同行评审红队 -->
+  <script src="/static/research-matrix-ui.js?v=20260926-research-matrix-v7" defer></script>
+  <script src="/static/reviewer-critic-ui.js?v=20260926-reviewer-critic-v6" defer></script>
+  <!-- 期末冲刺：右栏「考期备忘」+ 中栏底部「当日计划」，不再单独开弹窗；
+       倒推三阶段算法 + 每日打卡清单 + 任务直达产出（生成卡片 / 出小测验 / 看考点）；
+       样式自带，删掉这一行即完全回退 -->
+  <script src="/static/exam-countdown-ui.js?v=20260930-hxt-checklist-ask" defer></script>
+  <!-- 课程工作台：台历左栏课程导航，每门课下挂「一页速查表」「学习路径」两页，
+       学习路径页可直接按它制定冲刺计划；样式自带，删掉这一行即完全回退 -->
+  <script src="/static/study-desk-ui.js?v=20260930-hxt-checklist-ask" defer></script>
+  <!-- 海小棠桌宠：依赖登录会话与 app.js 广播的项目切换事件 -->
+  <script src="/static/hxt-sprite.js?v=20260910-vec-v1" defer></script>
+  <script src="/static/hxt-pet.js?v=20261001-sound-coalesce" defer></script>
+  <!-- 海小棠回答「原文 URL 可点化」增强：从「校园速递」addon 抽离，独立保留，删掉即回到纯文本 -->
+  <script src="/static/hxt-linkify.js?v=20260928-linkify-only" defer></script>
+  <!-- 海小棠 · 校园速递：作为海小棠首屏快捷入口 + 弹窗面板恢复（不挂主界面标题栏） -->
+  <script src="/static/hxt-campus-feed.js?v=20260930-hxt-campus-v2" defer></script>
+  <!-- 来源视图（资料 ⇄ 概念 二部图）：依赖 app.js 的 state / nodePalette / escapeHtml -->
+  <script src="/static/kb-source-view.js?v=20260912-insight-close" defer></script>
+  <!-- 文献结论 → 知识网：建「对比阅读项目」并打开来源视图；也可并入当前课程 -->
+  <!-- 对比视图：来源视图的新家。勾选 2–4 篇文献生成一张资料⇄概念图，多组组合并存 -->
+  <script src="/static/lit-compare-view.js?v=20260925-compare-view-v2" defer></script>
+  <script src="/static/lit-course-bridge.js?v=20260929-project-sync-v2" defer></script>
+  <!-- 提示词实验室（可编辑 · 可重置）：设置 → AI 透明度 -->
+  <script src="/static/prompt-lab.js?v=20260928-entry-count-dynamic" defer></script>
+  <!-- Obsidian 知识库导出面板：只加一个入口 + 弹窗，样式自带，删掉即完全回退 -->
+  <script src="/static/vault-export-ui.js?v=20260929-link-note-export-1" defer></script>
+  <!-- 英语词汇：学习产出区第 6 个页签 + 覆盖层视图；样式自带，删掉这一行即完全回退 -->
+  <script src="/static/english-vocab-ui.js?v=20261004-agent-palette" defer></script>
+  <!-- 语料摘录视图：把用户导入的资料（中文/英文）摘成可学的英文语料与术语表，供「📄 语料」页签渲染。
+       必须在 english-vocab-ui.js 之后加载（它渲染时读 window.KnowOriginCorpus）；样式自带，删掉这一行即回退 -->
+  <script src="/static/corpus-vocab-ui.js?v=20260927-corpus-v9-collect-all" defer></script>
+  <!-- 英语应试精读引擎：长难句手术刀 + 同义改写链萃取 + TJU-LLM 外刊语料生成与抓取；样式自带，删掉这一行即完全回退 -->
+  <script src="/static/english-exam-ui.js?v=20260926-en-exam-v24-demo-history" defer></script>
+  <!-- AI 用量（token 消耗）：聊天输入框旁一个入口 + 浮层（今日用量 / 配额进度 / 近两周趋势）；
+       样式自带，删掉这一行即完全回退。原「通知中心 + AI 用量」的合并入口已于 2026-09-25 拆分：
+       通知 UI 整块删除，用量挪到输入框旁 -->
+  <script src="/static/usage-ui.js?v=20260925-usage-v1" defer></script>
+  <!-- AI 记忆：聊天输入框旁一个入口 + 浮层（列表 / 增删改 / 从对话学习）；
+       样式自带，删掉这一行即完全回退 -->
+  <script src="/static/memory-ui.js?v=20260929-memory-evidence-1" defer></script>
+  <!-- 间隔复习的排期层：全部叠加在既有知识卡片上（到期角标 / 自评顺带排期 /
+       先写后对照），不改 app.js；删掉这一行即完全回退成"卡片只是卡片" -->
+  <script src="/static/card-srs.js?v=20261007-card-answer-collapsed" defer></script>
+  <!-- 文献引用导出：文献顶栏一个按钮 + 弹窗；删掉这一行即完全回退 -->
+  <script src="/static/citation-ui.js?v=20260925-citation-v2" defer></script>
+  <!-- 文献精读导出：文献顶栏一个按钮 + 弹窗（导出 Markdown + assets 图片）。
+       样式自带，删掉下面这一行即完全回退。 -->
+  <script src="/static/literature-export-ui.js?v=20260929-lit-export-deep-v2" defer></script>
+  <!-- 学情洞察：作为「学习台历」右侧侧栏的一块（在冲刺计划卡下方），与计划同屏
+       （一页速查表 / 学习路径）+ 聊天输入框旁的教学模式两档开关（strict 已删）；样式自带，删掉这一行即完全回退 -->
+  <script src="/static/study-insight-ui.js?v=20260930-hxt-checklist-ask" defer></script>
+  <script src="/static/research-profile-ui.js?v=20260929-rp-deep-tab-after-qa-v1" defer></script>
+  <!-- 进步面板：把掌握度翻译成「位置」——四档位阶（未开始 / 见过 / 会了 / 稳了）+ 今天的下一步
+       + 这一周往前挪了几格。BKT 在后端当闸门，界面上不出现任何分数；样式自带，
+       删掉这一行即完全回退。数据来自 /api/progress/{id}/plan 与 /digest（core/progress_engine.py）。 -->
+  <script src="/static/progress-panel.js?v=20260930-progress-ui" defer></script>
+  <!-- 迁移面板：学习概览里「会认 ≠ 会用」那一栏（迁移三档 / 换个情境试试 / 跨课程同概念 /
+       迁移题历史），外加全屏的「换个情境试试」弹窗 —— 出的题强制带源例→新情境的逐项对齐表。
+       进步面板与陪练台的推荐项都通过 window.KnowOriginTransfer.open() 调它
+       （progress-panel.js:631、coach-ui.js:585 都判过它有没有加载）。
+       数据来自 /api/transfer/*（core/transfer.py + core/concept_graph.py）；样式自带，
+       删掉这一行即完全回退。 ⚠️ 必须排在 progress-panel.js 之后不需要，但别漏掉这一行：
+       漏了的话整块迁移面板不出现，而推荐项那边只是静默不响应。 -->
+  <script src="/static/transfer-ui.js?v=20261006-transfer-v7" defer></script>
+  <!-- 知识点文档：速查表每行的「＋文档」与顶部的「一键生成整份文档」都落到这里 ——
+       全屏阅读页（左目录 + 右正文）、下载 .md、批量逐个生成后本地合订。
+       对外桥接点 window.KnowOriginKnowledgeDoc；样式自带，删掉这一行即完全回退。 -->
+  <script src="/static/knowledge-doc-ui.js?v=20261007-kd-pid1" defer></script>
+  <!-- 速查表：功能页签栏加一页「速查表」——列出全部知识点，每个知识点后面带
+       「＋卡片」「＋测验」「＋文档」三个快捷按钮，复用按节点生成端点
+       （/nodes/{id}/card、/nodes/{id}/quiz、/nodes/{id}/doc），
+       结果与主「知识卡片」「小测验」共享同一份数据；样式自带，删掉这一行即完全回退。 -->
+  <script src="/static/cheatsheet-ui.js?v=20261005-cheatsheet-focus" defer></script>
+  <script>
+    // 本地应用不需要离线外壳。旧版本曾注册根作用域 Service Worker，
+    // 会把旧页面和新脚本混在一起，外部浏览器可能因此反复空转。
+    // 启动时清理所有旧注册和缓存；只在确实仍被旧 SW 控制时刷新一次。
+    (function () {
+      if (!("serviceWorker" in navigator)) return;
+      var host = window.location.hostname;
+      var secure =
+        window.location.protocol === "https:" ||
+        host === "localhost" ||
+        host === "127.0.0.1";
+      if (!secure) return;
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.getRegistrations()
+          .then(function (regs) { return Promise.all(regs.map(function (r) { return r.unregister(); })); })
+          .then(function () { return window.caches && window.caches.keys ? window.caches.keys() : []; })
+          .then(function (keys) { return Promise.all((keys || []).map(function (key) { return window.caches.delete(key); })); })
+          .then(function () {
+            if (!navigator.serviceWorker.controller || sessionStorage.getItem("knoworigin-sw-cleaned")) return;
+            sessionStorage.setItem("knoworigin-sw-cleaned", "1");
+            window.location.reload();
+          })
+          .catch(function () {});
+      });
+    })();
+  </script>
+  <script>
+    // 首屏兜底：登录页与工作台初始都是 hidden，靠 app.js 的 init() 查询会话后决定显示哪个。
+    // 若脚本异常或 /api/auth/session 迟迟不返回（服务刚启动、网络卡顿），用户会一直看到
+    // 白屏，只能手动刷新——这正是"启动后有时需要刷新才能显示"。这里做一次不依赖 app.js
+    // 的兜底：3 秒后两个视图都还藏着，就强制露出登录页，保证永远有东西可看。
+    (function () {
+      window.setTimeout(function () {
+        var auth = document.getElementById("auth-shell");
+        var workspace = document.getElementById("workspace");
+        if (!auth || !workspace) return;
+        // app.js 查完会话就会表态（documentElement[data-session-ready="1"]）。
+        // 一旦表态，显示哪个视图已由它决定，兜底不该再有发言权——否则迟到的兜底
+        // 会把登录页硬塞到已经在用的界面上。
+        if (document.documentElement.dataset.sessionReady === "1") return;
+        // 「文章阅读」是第三个顶层视图：进入时 #workspace 会被加上 hidden，
+        // 页面上此刻可见的是 #literature-workspace。只盯着 workspace 会把它
+        // 误判成白屏（刷新后 3 秒内点「文章阅读」正是这个时序），于是登录卡片
+        // 叠在阅读界面顶上。所以任何顶层视图可见时都直接放过。
+        var literature = document.getElementById("literature-workspace");
+        var anyVisible =
+          !auth.classList.contains("hidden") ||
+          !workspace.classList.contains("hidden") ||
+          (literature && !literature.classList.contains("hidden"));
+        if (anyVisible) return;
+        auth.classList.remove("hidden");
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>

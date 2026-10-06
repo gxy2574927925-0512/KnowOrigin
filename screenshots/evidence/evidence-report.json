@@ -1,0 +1,102 @@
+{
+  "steps": [
+    {
+      "step": "1 真实历史",
+      "msgs": 2,
+      "traces": 1,
+      "traceRows": 2,
+      "dataTool": 2,
+      "panelOpen": false,
+      "htmlOpen": false,
+      "chips": 0,
+      "turns": 0,
+      "bare": 0,
+      "summary": "这一问读了什么、调了什么"
+    },
+    {
+      "step": "2 手动开（真实数据）",
+      "msgs": 2,
+      "traces": 1,
+      "traceRows": 2,
+      "dataTool": 2,
+      "panelOpen": true,
+      "htmlOpen": true,
+      "chips": 2,
+      "turns": 1,
+      "bare": 0,
+      "summary": "1 条回答 · 2 个动作 · 每条都查了"
+    },
+    {
+      "step": "3 刷新后（应自动恢复）",
+      "msgs": 2,
+      "traces": 1,
+      "traceRows": 2,
+      "dataTool": 2,
+      "panelOpen": true,
+      "htmlOpen": true,
+      "chips": 2,
+      "turns": 1,
+      "bare": 0,
+      "summary": "1 条回答 · 2 个动作 · 每条都查了"
+    },
+    {
+      "step": "4 注入 5 轮",
+      "msgs": 5,
+      "traces": 1,
+      "traceRows": 5,
+      "dataTool": 5,
+      "panelOpen": true,
+      "htmlOpen": true,
+      "chips": 5,
+      "turns": 3,
+      "bare": 2,
+      "summary": "3 条回答 · 5 个动作 · 2 条没查任何东西"
+    }
+  ],
+  "beforeReload": {
+    "openKey": "1",
+    "lastProject": "proj_7ae6bbd075a94010",
+    "hasInit": true
+  },
+  "afterReload": {
+    "openKeyNow": "1",
+    "lastProjectNow": "proj_7ae6bbd075a94010",
+    "title": "2026 · 依据栏体检",
+    "messagesInDom": 2
+  },
+  "jitter": {
+    "turns": 3,
+    "winMoved": false,
+    "convMoved": false,
+    "bodyMoved": false,
+    "focus": 1,
+    "dim": 4
+  },
+  "chip": {
+    "before": false,
+    "after": true,
+    "wrap": "wrap",
+    "radius": "9px",
+    "detailShown": "block",
+    "detailWidth": 285
+  },
+  "full": {
+    "panelW": 1288,
+    "panelLeft": 312,
+    "chatDisplay": "none",
+    "chatW": 0,
+    "cards": 3,
+    "chips": 5,
+    "label": "还原",
+    "resizer": "none",
+    "suggestedHidden": true
+  },
+  "restored": {
+    "panelW": 380,
+    "chatDisplay": "grid"
+  },
+  "academic": {
+    "button": "none",
+    "panel": "none"
+  }
+}

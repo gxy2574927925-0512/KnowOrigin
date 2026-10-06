@@ -1,0 +1,670 @@
+﻿/* ===========================================================================
+   Agent 工作台布局（html[data-ui="agent"]）
+   ---------------------------------------------------------------------------
+   隔离铁律：除下面那 5 条兜底隐藏规则外，本文件所有规则都必须锁在
+   html[data-ui="agent"] 下。否则会污染「学术极简 / 经典工作台」两套布局。
+   （A 线的 .message-agent-trace / .agent-action-card 是另一个功能，那些样式在
+    styles.css 里、不带作用域，两者没有字面重名，可共存。）
+   =========================================================================== */
+
+/* ---- 兜底：另两套布局里这些节点必须藏起来（类名只属于本功能） ---- */
+.agent-rail,
+.agent-sessions,
+.agent-overlay-head,
+.agent-import-button { display: none; }
+
+.agent-only-settings { display: none; }
+html[data-ui="agent"] .agent-only-settings { display: grid; }
+
+/* ---- 配色令牌：整段复用学术极简的冷蓝（实现「无绿冷蓝」） ---- */
+html[data-ui="agent"] {
+  --background: #f6f7f9; --panel: #ffffff; --sidebar: #f0f2f5;
+  --ink: #17202b; --muted: #687384; --line: #dfe4eb;
+  --green: #3867d6; --green-dark: #244a9b; --green-soft: #e9effd;
+  --gold: #bd7a22; --gold-soft: #fff4df;
+  --red: #c84b57;  --red-soft: #fdebed;
+  --green-rgb: 56, 103, 214; --green-dark-rgb: 36, 74, 155;
+  --shadow: 0 8px 28px rgba(24, 35, 54, 0.06);
+
+  --agent-bg: var(--background);
+  --agent-rail-bg: #eceff3;
+  --agent-side-bg: var(--sidebar);
+  --agent-line: var(--line);
+  --agent-line-soft: #e9edf2;
+  --agent-hover: rgba(23, 32, 43, 0.05);
+  --agent-active: rgba(23, 32, 43, 0.085);
+  --agent-scrim: rgba(11, 26, 51, 0.45);
+  --agent-shadow: 0 18px 50px rgba(11, 35, 75, 0.16);
+}
+html[data-ui="agent"][data-theme="dark"] {
+  --background: #12161d; --panel: #1a2029; --sidebar: #151b24;
+  --ink: #e7edf5; --muted: #8c98aa; --line: #2c3645;
+  --green: #7da2ff; --green-dark: #a9bfff; --green-soft: #202d49;
+  --gold: #d7ae5c; --gold-soft: #33280f;
+  --red: #e0798a;    --red-soft: #3a1f26;
+  --green-rgb: 125, 162, 255; --green-dark-rgb: 169, 191, 255;
+  --shadow: none;
+  --agent-rail-bg: #151a23; --agent-line-soft: #222b38;
+  --agent-hover: rgba(255, 255, 255, 0.06); --agent-active: rgba(255, 255, 255, 0.10);
+  --agent-scrim: rgba(4, 8, 15, 0.62); --agent-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- 主栅格 ----
+   ⚠️ 最大的坑：.workspace 有 7 个子项（rail / sessions / sources / resizer /
+   agent-panel / resizer / studio）。只写 grid-template-columns 而不给每个子项显式
+   钉死 grid-column/grid-row，浮层一 display 就会把后面的 .agent-panel 挤到第二行。 */
+html[data-ui="agent"] body { min-width: 1040px; background: var(--agent-bg); }
+
+html[data-ui="agent"] .workspace {
+  padding: 0;
+  grid-template-columns: 56px 256px minmax(0, 1fr);
+  gap: 0;
+  background: var(--agent-bg);
+}
+html[data-ui="agent"] .panel-resizer { display: none; }
+
+/* 依据栏：只在开启时多出第 4 列。对话区保底 360px —— 再窄就没法读了，
+   而依据栏自己那边有夹取（setEvidenceWidth 会按容器可用宽度夹），不会把对话区挤没。
+   ⚠️ 必须显式钉 grid-column/grid-row：不钉的话浮层一 display 就把 .agent-panel 挤到第二行
+   （本文件开头那条警告就是为这个写的）。 */
+html[data-ui="agent"].evidence-open .workspace {
+  grid-template-columns: 56px 256px minmax(360px, 1fr) var(--evidence-w, 380px);
+  transition: grid-template-columns 0.2s ease;
+}
+html[data-ui="agent"] #evidence-panel { grid-column: 4; grid-row: 1; }
+html[data-ui="agent"] .evidence-panel { position: relative; }
+/* 「试试这样问」浮层是 position:absolute; right:12px，定位祖先在 .agent-panel 之外，
+   挤压出的侧栏会正好压住它。往左让一个侧栏宽度，它就回到对话区右端。 */
+html[data-ui="agent"].evidence-open .suggested-questions {
+  right: calc(var(--evidence-w, 380px) + 12px);
+}
+/* 完整态（依据栏接管整块区域）时它没地方待，直接藏掉。 */
+html[data-ui="agent"].evidence-full .suggested-questions { display: none; }
+
+/* ---- 完整视图：依据栏**占领对话区** ----
+   第 3 列归零、#agent-panel 整块隐藏，剩余宽度全给依据栏。
+   ⚠️ 第 3 列必须留着（哪怕 0 宽）：#agent-panel 与 #evidence-panel 都显式钉了
+   grid-column，容器少一列会把它们挤到别的行/列（就是本文件开头警告的那件事）。 */
+html[data-ui="agent"].evidence-open.evidence-full .workspace {
+  grid-template-columns: 56px 256px 0 minmax(0, 1fr);
+  transition: none;
+}
+html[data-ui="agent"].evidence-open.evidence-full #agent-panel { display: none; }
+
+
+/* ---- 项目/会话侧栏：收起 / 展开 ----
+   收起时第 2 列宽度压到 0（而不是删掉这一列）：.agent-panel / #evidence-panel 都显式钉了
+   grid-column，容器少一列会把它们挤去别的行 —— 就是文件开头那条警告。
+   ⚠️ 这几条必须排在上面三条 workspace 规则之后：与 .evidence-open 同特异性，靠顺序取胜。 */
+html[data-ui="agent"].sessions-collapsed .workspace {
+  grid-template-columns: 56px 0 minmax(0, 1fr);
+  transition: grid-template-columns 0.18s ease;
+}
+html[data-ui="agent"].sessions-collapsed.evidence-open .workspace {
+  grid-template-columns: 56px 0 minmax(360px, 1fr) var(--evidence-w, 380px);
+}
+html[data-ui="agent"].sessions-collapsed.evidence-open.evidence-full .workspace {
+  grid-template-columns: 56px 0 0 minmax(0, 1fr);
+  transition: none;
+}
+html[data-ui="agent"].sessions-collapsed #agent-sessions {
+  display: none;
+}
+/* 图标栏那个开关的箭头随状态翻转 */
+html[data-ui="agent"] #agent-sessions-toggle .agent-rail-glyph svg { transition: transform 0.18s ease; }
+html[data-ui="agent"].sessions-collapsed #agent-sessions-toggle .agent-rail-glyph svg { transform: rotate(180deg); }
+
+html[data-ui="agent"] #agent-rail      { grid-column: 1;    grid-row: 1; }
+html[data-ui="agent"] #agent-sessions  { grid-column: 2;    grid-row: 1; }
+html[data-ui="agent"] .agent-panel     { grid-column: 3;    grid-row: 1; }
+html[data-ui="agent"] .sources-panel,
+html[data-ui="agent"] .studio-panel    { grid-column: 1 / -1; grid-row: 1; }
+
+/* ---- 图标栏 ---- */
+html[data-ui="agent"] .agent-rail {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 0 12px; background: var(--agent-rail-bg);
+  border-right: 1px solid var(--agent-line-soft); overflow: hidden;
+}
+html[data-ui="agent"] .agent-rail-logo { display: grid; place-items: center; height: 32px; }
+html[data-ui="agent"] .agent-rail-logo .ko-brand-img { width: 24px; height: 24px; }
+html[data-ui="agent"] .agent-rail-sep { width: 20px; height: 1px; background: var(--agent-line); margin: 6px 0; }
+html[data-ui="agent"] .agent-rail-spring { flex: 1 1 auto; }
+html[data-ui="agent"] .agent-rail-btn {
+  position: relative;
+  display: grid; place-items: center;
+  width: 38px; height: 38px; padding: 0;
+  border: 1px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--muted);
+  font-family: inherit; font-size: 15px; line-height: 1;
+  cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+html[data-ui="agent"] .agent-rail-btn:hover { background: var(--agent-hover); color: var(--ink); }
+html[data-ui="agent"] .agent-rail-btn.is-active { background: var(--agent-active); color: var(--ink); }
+html[data-ui="agent"] .agent-rail-btn:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+html[data-ui="agent"] .agent-rail-glyph { display: grid; place-items: center; }
+html[data-ui="agent"] .agent-rail-glyph svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+html[data-ui="agent"] .agent-rail-glyph-text { font-size: 12px; /* <button> 不继承 font-weight，字重要写死 */ font-weight: 600; letter-spacing: .2px; }
+html[data-ui="agent"] .agent-rail-badge {
+  position: absolute; top: 3px; right: 3px;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  display: grid; place-items: center;
+  border-radius: 999px; background: var(--green); color: #fff;
+  font-size: 10px; line-height: 1;
+}
+html[data-ui="agent"] .agent-rail-badge.hidden { display: none; }
+
+/* ---- 项目 / 会话侧栏 ---- */
+html[data-ui="agent"] .agent-sessions {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--agent-side-bg); border-right: 1px solid var(--agent-line-soft);
+}
+html[data-ui="agent"] .agent-sessions-head { display: grid; gap: 6px; padding: 10px; border-bottom: 1px solid var(--agent-line-soft); }
+html[data-ui="agent"] .agent-calendar-entry {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 10px; border: 1px solid var(--agent-line); border-radius: 10px;
+  background: var(--panel); color: var(--ink); font-family: inherit;
+  text-align: left; cursor: pointer;
+}
+html[data-ui="agent"] .agent-calendar-entry:hover { border-color: var(--green); }
+html[data-ui="agent"] .agent-calendar-ic { font-size: 15px; color: var(--green); }
+html[data-ui="agent"] .agent-calendar-text { display: grid; line-height: 1.35; }
+html[data-ui="agent"] .agent-calendar-text strong { font-size: 12.5px; font-weight: 600; }
+html[data-ui="agent"] .agent-calendar-text small { font-size: 10.5px; color: var(--muted); }
+html[data-ui="agent"] .agent-calendar-streak {
+  margin-left: auto; padding: 1px 7px; border-radius: 999px;
+  background: var(--green-soft); color: var(--green-dark);
+  font-size: 10.5px; font-weight: 600;
+}
+html[data-ui="agent"] .agent-calendar-streak[hidden] { display: none; }
+html[data-ui="agent"] .agent-new-session, html[data-ui="agent"] .agent-sessions-foot-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  padding: 7px 10px; border: 1px solid var(--agent-line); border-radius: 9px;
+  background: transparent; color: var(--ink); font-family: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+html[data-ui="agent"] .agent-new-session:hover, html[data-ui="agent"] .agent-sessions-foot-btn:hover { background: var(--agent-hover); }
+html[data-ui="agent"] .agent-session-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 6px; }
+html[data-ui="agent"] .agent-sessions-foot { padding: 8px 10px 10px; border-top: 1px solid var(--agent-line-soft); }
+html[data-ui="agent"] .agent-project { margin-bottom: 4px; }
+html[data-ui="agent"] .agent-project-row {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; text-align: left; cursor: pointer;
+}
+html[data-ui="agent"] .agent-project-row:hover { background: var(--agent-hover); }
+html[data-ui="agent"] .agent-project-row.is-current { background: var(--agent-active); }
+/* 展开箭头与「文档」图标都是行内的独立点击目标（行本身是 <button>，套不了 <button>，
+   所以用 role="button" 的 <span>，点击在 #agent-session-list 的委托里分流）。 */
+html[data-ui="agent"] .agent-project-caret {
+  display: grid; place-items: center; flex: 0 0 auto;
+  width: 16px; height: 16px; margin-left: -4px;
+  border-radius: 5px; color: var(--muted); font-size: 10px; line-height: 1;
+}
+html[data-ui="agent"] .agent-project-caret:hover { background: var(--agent-line-soft); color: var(--ink); }
+html[data-ui="agent"] .agent-project-name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 右侧的文档入口：静止时半透明（触屏没有 hover，全藏起来就点不到），悬停整行或当前项目时点亮 */
+html[data-ui="agent"] .agent-project-doc {
+  display: grid; place-items: center; flex: 0 0 auto;
+  width: 22px; height: 22px; border-radius: 6px;
+  color: var(--muted); opacity: 0.45;
+}
+html[data-ui="agent"] .agent-project-doc svg {
+  width: 14px; height: 14px; fill: none; stroke: currentColor;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+}
+html[data-ui="agent"] .agent-project-row:hover .agent-project-doc,
+html[data-ui="agent"] .agent-project-row.is-current .agent-project-doc { opacity: 1; }
+html[data-ui="agent"] .agent-project-doc:hover { background: var(--agent-hover); color: var(--green); }
+html[data-ui="agent"] .agent-session-main {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px 6px 20px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink);
+  font-family: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+html[data-ui="agent"] .agent-session-main:hover { background: var(--agent-hover); }
+html[data-ui="agent"] .agent-session-main.is-active { background: var(--green-soft); color: var(--green-dark); }
+html[data-ui="agent"] .agent-session-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-ui="agent"] .agent-session-more {
+  display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+  font-family: inherit; cursor: pointer;
+}
+html[data-ui="agent"] .agent-session-more:hover { background: var(--agent-hover); color: var(--ink); }
+html[data-ui="agent"] .agent-sessions-empty { padding: 14px 10px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+/* ---- 学习产出 = 整屏浮层（解决遮挡） ---- */
+html[data-ui="agent"] .studio-panel { display: none; }
+
+html[data-ui="agent"] .studio-panel.studio-focus {
+  display: grid;
+  /* 只占主列（第 3 列），左侧图标栏与会话栏留在原位可见。
+     基础样式是 position:fixed + inset:16px 的整屏浮层，这里必须退回普通栅格项：
+     固定定位 + inset:0 + 100vw/100vh 会无视 grid-column 铺满整个视口。
+     z-index 只要比同格的 .agent-panel 高（盖住对话区），不能压过左栏。 */
+  position: relative;
+  inset: auto;
+  grid-column: 3;
+  grid-row: 1;
+  z-index: 6;
+  width: auto;
+  height: auto;
+  max-width: none; max-height: none;
+  border: 0; border-radius: 0;
+  background: var(--agent-bg); box-shadow: none;
+  /* 标题栏 + 内容两行：基础样式是 auto auto 1fr 但只有 2 个子节点，
+     #studio-output 会落在 auto 行 → 长内容不滚动、被 overflow:hidden 裁掉 */
+  grid-template-rows: auto minmax(0, 1fr);
+}
+html[data-ui="agent"] body.studio-focus-open::before { display: none; }
+
+/* 动作区正常参与布局：「返回对话」排最左、注入的导出按钮仍在最右，都交给 actions 容器自己排。
+   ⚠️ 不要再对 .studio-heading-actions 用 display:contents —— 基础 .studio-heading 是 grid
+   （不是 flex），摊平后子元素走自动布局，会被甩到第二行拉成满宽。 */
+html[data-ui="agent"] .studio-panel.studio-focus .studio-heading-actions {
+  display: flex; align-items: center; gap: 8px;
+}
+
+/* 「试试这样问」建议条只属于主界面的对话区：它是 absolute + z-index:300，
+   而学习产出浮层是 z-index:120 的整屏浮层 —— 浮层一打开它就浮在最上面，
+   正好压住标题栏右侧的「返回对话」按钮（elementFromPoint 命中 button.suggested-hide）。
+   整屏看卡片/测验/笔记时没有对话区可提示，所以整条藏掉，而不是下移让位。 */
+html[data-ui="agent"] body.studio-focus-open .suggested-questions { display: none; }
+
+/* 台历材料工具条上的副标题小标签：基础样式是琥珀暖底（rgba(245,223,152,.55) 配暖金文字）。
+   academic 已经给了冷蓝版（styles.css:12377 的 #415b88 / #e5edff），这里照抄成 agent 作用域。
+   不能改 --gold / --gold-soft 令牌本身 —— 它们在 academic 与 agent 下都是暖的，
+   那是语义色（「演示内容」之类的警示要用），只能针对这个控件覆盖。 */
+html[data-ui="agent"] .studio-panel .study-artifact-toolbar .sat-sub {
+  color: #415b88;
+  background: #e5edff;
+  border-color: #bacbed;
+}
+
+/* 功能导航整条隐藏（内置 5 页与英语词汇都在图标栏） */
+html[data-ui="agent"] .studio-panel.studio-focus .feature-nav-shell,
+html[data-ui="agent"] .studio-panel.studio-focus .feature-swipe-cue,
+html[data-ui="agent"] .studio-panel.studio-focus .fallback-label { display: none; }
+
+/* 图谱左右铺满：不要给内容加 max-width。
+   background 必须显式压成 transparent：基础样式（styles.css:2843）给展开态画布叠了两层
+   暖色 —— 一个绿色 radial 光晕 + 一道米色 linear-gradient，那是截图里那片奶油画布的来源。
+   两层都是 rgba()，令牌覆盖不到，只能在 agent 作用域整个去掉，让面板自己的冷白底露出来。 */
+html[data-ui="agent"] .studio-panel.studio-focus .studio-output {
+  padding: 14px 14px 32px;
+  background: transparent;
+}
+html[data-ui="agent"] .studio-panel.studio-focus .framework-shell { grid-template-columns: 200px minmax(0, 1fr); gap: 12px; }
+html[data-ui="agent"] .studio-panel.studio-focus .graph-wrap { height: min(72vh, 820px); }
+
+/* 英语词汇视图挂在 .studio-panel（不在 #studio-output 里，是 JS 运行时 append 的兄弟节点），
+   要显式放进内容行。
+   ⚠️ 它和 #studio-output 是同一个格子的两个候选：.studio-heading / #studio-output / #en-vocab-view
+   三个子节点里，只有标题栏有显式落位，另两个谁显示谁就占第 2 行 —— 两个都在就叠在一起
+   （表现为英语词汇面板被下面的「还没有笔记」压住、内容被裁一半且滚不动）。
+   所以：两者都显式落第 2 行，再用 :has() 互斥，谁可见另一个就 display:none。
+   不能靠 JS 隐藏 #studio-output —— 打开/关闭词汇视图的入口散在 english-vocab-ui.js、
+   english-exam-ui.js、hxt-pet.js 三处，漏一处就复现。 */
+html[data-ui="agent"] .studio-panel #studio-output {
+  grid-row: 2; grid-column: 1; min-height: 0; overflow-y: auto;
+}
+html[data-ui="agent"] .studio-panel #en-vocab-view {
+  grid-row: 2; grid-column: 1; position: relative; z-index: 2;
+  min-height: 0; overflow-y: auto; background: var(--agent-bg);
+}
+html[data-ui="agent"] .studio-panel.studio-focus:has(#en-vocab-view:not(.hidden)) #studio-output { display: none; }
+
+/* 英语词汇视图自带「‹ 返回 + 语料/词库/复习/…」那一行，再压一条学习产出标题栏
+   就是重复两套标题，而且那条标题显示的是上一个功能名（打开词汇页时 state.feature
+   还停在 favorites，于是出现「我的笔记」压在英语词汇上面）。整条藏掉。 */
+html[data-ui="agent"] .studio-panel.studio-focus:has(#en-vocab-view:not(.hidden)) .studio-heading {
+  display: none;
+}
+
+/* ---- 项目资料 = 对话框式浮层 ---- */
+html[data-ui="agent"] .sources-panel { display: none; }
+
+html[data-ui="agent"] body.agent-sources-open .sources-panel {
+  display: block; place-self: center; z-index: 110;
+  width: min(540px, calc(100vw - 64px)); height: min(84vh, 760px);
+  padding: 0 16px 16px;
+  border: 1px solid var(--agent-line); border-radius: 14px; background: var(--panel);
+  /* 100vmax 外扩充当遮罩：省掉一个额外元素，也不会和 studio-focus 的背板打架 */
+  box-shadow: var(--agent-shadow), 0 0 0 100vmax var(--agent-scrim);
+}
+html[data-ui="agent"] body.agent-sources-open .sources-panel .course-bar,
+html[data-ui="agent"] body.agent-sources-open .sources-panel .project-switcher { display: none; }
+html[data-ui="agent"] .agent-overlay-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0 -16px; padding: 13px 16px 10px;
+  border-bottom: 1px solid var(--agent-line-soft); background: var(--panel);
+}
+html[data-ui="agent"] .agent-overlay-head .eyebrow { margin: 0; }
+html[data-ui="agent"] .agent-overlay-head h2 { margin: 2px 0 0; font-size: 15px; }
+html[data-ui="agent"] .agent-overlay-close {
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 1px solid var(--agent-line); border-radius: 8px;
+  background: transparent; color: var(--muted); font-family: inherit; cursor: pointer;
+}
+html[data-ui="agent"] .agent-overlay-close:hover { color: var(--ink); border-color: var(--green); }
+
+/* 输入框左侧的「＋」导入入口 */
+html[data-ui="agent"] .agent-import-button {
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 1px solid var(--agent-line); border-radius: 8px;
+  background: transparent; color: var(--muted); font-family: inherit; font-size: 15px;
+  cursor: pointer;
+}
+html[data-ui="agent"] .agent-import-button:hover { color: var(--ink); border-color: var(--green); }
+
+/* ---- 对话区（用户提问对比度修复 + 凝练） ---- */
+html[data-ui="agent"] .agent-panel { background: var(--agent-bg); border: 0; border-radius: 0; box-shadow: none; }
+html[data-ui="agent"] .agent-header { min-height: 48px; padding: 8px 20px; background: var(--agent-bg); border-bottom: 1px solid var(--agent-line-soft); }
+html[data-ui="agent"] .agent-header .eyebrow { display: none; }
+html[data-ui="agent"] .article-reader-button { display: none; }  /* 文章阅读挪到图标栏 */
+html[data-ui="agent"] .streak-badge { display: none; }            /* 打卡天数挪到侧栏台历 */
+
+html[data-ui="agent"] .conversation { padding: 18px 22px 4px; background: var(--agent-bg); }
+html[data-ui="agent"] .conversation .message {
+  max-width: min(100%, 760px); margin-left: auto; margin-right: auto; margin-bottom: 18px;
+}
+/* 助手回答不做气泡，直接落在纸面上 */
+html[data-ui="agent"] .conversation .assistant-message > div {
+  max-width: 100%; padding: 0; border: 0; border-top-left-radius: 0;
+  background: transparent; box-shadow: none;
+  font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.75;
+}
+/* ⚠️ 基础样式给的是「白字 + 绿底」（.user-message > div { color: white; background: var(--green) }）。
+   换成纸面卡片后必须把 color 一起改回墨色，否则浅色模式下白字压白底 —— 提问看不见。 */
+html[data-ui="agent"] .conversation .user-message > div {
+  max-width: min(100%, 620px); padding: 9px 13px;
+  border: 1px solid var(--agent-line); border-radius: 12px 12px 3px 12px;
+  color: var(--ink); background: var(--panel);
+  font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.65;
+}
+html[data-ui="agent"][data-theme="dark"] .conversation .user-message > div { background: #1e242e; }
+html[data-ui="agent"] .conversation .user-message .message-meta,
+html[data-ui="agent"] .conversation .user-message .message-time { color: var(--muted); }
+
+/* 对话 → 输入框的自然过渡：输入框上方一条同色渐隐 */
+html[data-ui="agent"] .composer {
+  position: relative; width: calc(100% - 40px); max-width: 808px;
+  margin: 0 auto 14px; padding: 7px 9px 7px 11px;
+  border: 1px solid var(--agent-line); border-radius: 14px;
+  background: var(--panel); box-shadow: 0 4px 14px rgba(24, 35, 54, 0.06);
+}
+html[data-ui="agent"] .composer::before {
+  content: ""; position: absolute; left: -28px; right: -28px; bottom: 100%; height: 40px;
+  background: linear-gradient(to top, var(--agent-bg), rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+
+/* ---- 「试试这样问」：顶栏最右的小药丸 + 可拖动 + 右键菜单 ---- */
+/* 行位要显式钉死，否则它一脱流，对话就会被自动排布顶到第一行 */
+html[data-ui="agent"] .agent-panel { grid-template-rows: auto 1fr auto; }
+html[data-ui="agent"] .agent-header   { grid-row: 1; }
+html[data-ui="agent"] .conversation   { grid-row: 2; }
+html[data-ui="agent"] .composer       { grid-row: 3; }
+
+html[data-ui="agent"] .suggested-questions {
+  position: absolute; top: 7px; right: 12px; left: auto;
+  z-index: 300;   /* 高于输入区 popover(200) 与题面浮层(210)；原生 <dialog> 走 top layer 不受影响 */
+  width: 232px; max-width: none; max-height: 300px; margin: 0;
+  padding: 5px 6px 5px 9px; border: 1px solid var(--agent-line);
+  border-radius: 999px; background: var(--panel); box-shadow: 0 4px 14px rgba(24, 35, 54, .08);
+  overflow: visible;
+}
+html[data-ui="agent"] .suggested-questions:not(.is-collapsed) {
+  padding: 8px 9px; border-radius: 12px; box-shadow: 0 10px 28px rgba(24, 35, 54, .12);
+}
+/* 标题行当拖动手柄 */
+html[data-ui="agent"] .suggested-questions .suggested-questions-head {
+  margin-bottom: 0; gap: 6px; cursor: grab; touch-action: none; user-select: none;
+}
+html[data-ui="agent"] .suggested-questions .suggested-questions-head:active { cursor: grabbing; }
+html[data-ui="agent"] .suggested-questions .suggested-questions-actions button { cursor: pointer; }
+html[data-ui="agent"] .suggested-questions.is-dragging { z-index: 320; box-shadow: 0 14px 34px rgba(24, 35, 54, .18); }
+html[data-ui="agent"] .suggested-questions.is-dragging * { cursor: grabbing !important; }
+html[data-ui="agent"] .suggested-questions:not(.is-collapsed) .suggested-questions-head { margin-bottom: 7px; }
+html[data-ui="agent"] .suggested-question-chip { padding: 6px 9px; border-radius: 8px; font-size: calc(11.5px * var(--font-scale, 1)); line-height: 1.5; }
+html[data-ui="agent"] #suggested-restore { display: none; }  /* 折叠恢复靠块内「显示」按钮 */
+
+/* 右键菜单（挂 body，fixed，独立于任何布局） */
+.agent-suggested-menu {
+  position: fixed; z-index: 400; display: grid; min-width: 168px; padding: 4px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  box-shadow: 0 18px 48px rgba(29, 28, 24, .22); font-family: var(--font-sans);
+}
+.agent-suggested-menu[hidden] { display: none; }
+.agent-suggested-menu button {
+  padding: 7px 10px; border: 0; border-radius: 7px; color: var(--ink);
+  background: transparent; font-family: inherit; font-size: calc(12px * var(--font-scale, 1));
+  text-align: left; white-space: nowrap; cursor: pointer;
+}
+.agent-suggested-menu button:hover { background: var(--green-soft); color: var(--green-dark); }
+.agent-suggested-menu button.is-danger:hover { background: var(--red-soft); color: var(--red); }
+.agent-suggested-menu-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+/* ---- 冷蓝化覆写（脚本从 styles.css 的学术极简区块提取） ---- */
+/* 冷蓝化覆写（从 styles.css 的学术极简区块脚本提取，只换作用域不换内容）
+   原注释：学习空间统一为冷白、蓝灰纸面。
+   这里覆盖框架目录、双链图谱、学习概览和我的笔记的旧暖白/绿色底色，
+   让收起与全屏展开保持同一套干净的视觉语义。 */
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-sidebar {
+  background: #f8faff;
+  border-color: #d6dfed;
+  box-shadow: 0 4px 14px rgba(36, 63, 104, .05);
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-sidebar-left { border-left-color: #a9bcd8; }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-sidebar-header { border-bottom-color: #d6dfed; }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-sidebar-header .sidebar-count {
+  color: #35558c;
+  background: #eaf1ff;
+  border-color: #c7d5ea;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree::-webkit-scrollbar-thumb { background: #b8c6da; }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-toggle { color: #71819a; }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-toggle:hover,
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-label:hover { background: #eef3fa; }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-label.is-active { background: #eaf0f9; color: #3c5175; }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-label:focus-visible { outline-color: rgba(85, 119, 200, .42); }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-children { border-left-color: #d6dfed; }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-status.s-unknown { background: #b8c5d8; box-shadow: 0 0 0 1.5px rgba(184, 197, 216, .4); }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-status.s-learning { background: #8b9fc2; box-shadow: 0 0 0 1.5px rgba(139, 159, 194, .35); }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-tree-status.s-mastered { background: #6a83bb; box-shadow: 0 0 0 1.5px rgba(106, 131, 187, .3); }
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-stat-card { background: #ffffff; border-color: #d6dfed; }
+
+html[data-ui="agent"]:not([data-theme="dark"]) .framework-view[data-kb-view-mode="graph"] .graph-wrap::after {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85);
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .graph-wrap {
+  background: #f8faff;
+  border-color: #d4deed;
+}
+/* 画布底色与节点光晕的取色在 app.js 里按 usesCoolPalette() 定（SVG defs 是渲染时烤进去的，
+   CSS 的 !important 只会把柔边径向渐变压成硬边纯色盘）。 */
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-grid-dot { fill: #cbd6e8; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-link { stroke: #b8c5d8; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-link.is-active { stroke: #6a83bb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-ring { stroke: #b3c4e0; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-node.is-focus .kb-flow-dot,
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-node.is-lit-node .kb-flow-dot,
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-node.kf-front .kb-flow-dot {
+  filter: drop-shadow(0 0 6px rgba(85, 119, 200, .42));
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-node.is-focus .kb-flow-snowflake {
+  filter: drop-shadow(0 0 7px rgba(85, 119, 200, .38));
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-snowflake path {
+  fill: #e4ebf6;
+  stroke: #aab9d2;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-label {
+  fill: #33445f;
+  stroke: rgba(248, 250, 255, .96);
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-label.is-mastered { fill: #243b63; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-label.is-learning { fill: #496487; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-label.is-faint { fill: #72829a; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-node.is-focus .kb-flow-label,
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-node:hover .kb-flow-label,
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-flow-node:focus-visible .kb-flow-label {
+  fill: #20375f;
+  stroke: rgba(248, 250, 255, .98);
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .graph-controls,
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-view-switch {
+  border-color: #d6dfed;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 4px 14px rgba(36, 63, 104, .06);
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .graph-control,
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-view-btn { color: #496487; }
+html[data-ui="agent"]:not([data-theme="dark"]) .graph-control:hover,
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-view-btn:hover { background: #eef3fa; }
+html[data-ui="agent"]:not([data-theme="dark"]) .kb-view-btn.is-active { color: #fff; background: #6a83bb; box-shadow: 0 3px 10px rgba(106, 131, 187, .2); }
+
+html[data-ui="agent"]:not([data-theme="dark"]) .overview-hero,
+html[data-ui="agent"]:not([data-theme="dark"]) .overview-panel {
+  background: #ffffff;
+  border-color: #d6dfed;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .overview-hero { background: #eef3ff; }
+html[data-ui="agent"]:not([data-theme="dark"]) .overview-hero h3 { color: #294d91; }
+html[data-ui="agent"]:not([data-theme="dark"]) .overview-section-heading > span {
+  color: #35558c;
+  background: #eaf1ff;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .overview-node-card,
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-bucket,
+html[data-ui="agent"]:not([data-theme="dark"]) .evidence-grid > div {
+  background: #f8faff;
+  border-color: #d6dfed;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .overview-node-card:hover {
+  background: #eef3ff;
+  border-color: #9db5df;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-stack { background: #e8edf5; }
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-stack-segment.is-unstarted,
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-bucket i.is-unstarted { background: #ccd4e0; }
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-stack-segment.is-encountered,
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-bucket i.is-encountered { background: #a6b4cb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-stack-segment.is-learning,
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-bucket i.is-learning { background: #8b9fc2; }
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-stack-segment.is-mastered,
+html[data-ui="agent"]:not([data-theme="dark"]) .mastery-bucket i.is-mastered { background: #6a83bb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .progress-track i { background: #6a83bb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .evidence-grid strong { color: #35558c; }
+html[data-ui="agent"]:not([data-theme="dark"]) .evidence-grid .evidence-item--k-question { border-left-color: #8ea9d9; background: #f2f6fd; }
+html[data-ui="agent"]:not([data-theme="dark"]) .evidence-grid .evidence-item--k-card { border-left-color: #78a4c9; background: #eff6fb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .evidence-grid .evidence-item--k-solve { border-left-color: #a5aeca; background: #f3f5fb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .evidence-grid .evidence-item--k-quiz { border-left-color: #7895c4; background: #eef3fb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .evidence-grid .evidence-item--thr { border-left-color: #9aaed0; background: #f2f4fa; }
+html[data-ui="agent"]:not([data-theme="dark"]) .progress-track { background: #e8edf5; }
+
+html[data-ui="agent"]:not([data-theme="dark"]) .favorites-overview {
+  border-color: #c7d5ea;
+  background: #eef3ff;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-group {
+  background: #f8faff;
+  border-color: #d6dfed;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-group > header {
+  background: #eef3fa;
+  border-bottom-color: #d6dfed;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-entry {
+  background: var(--favorite-highlight-soft, #ffffff);
+  border-color: #d6dfed;
+  border-left-color: var(--favorite-highlight-border, #9db5df);
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-total { background: #3457e8; box-shadow: 0 8px 18px rgba(52, 87, 232, .18); }
+html[data-ui="agent"]:not([data-theme="dark"]) .chapter-marker,
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-type { color: #35558c; background: #eaf1ff; }
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-answer summary { color: #35558c; }
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-answer p { background: #f3f6fb; }
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-note {
+  background: var(--favorite-highlight-soft, #f1f5fb);
+  border-left-color: var(--favorite-highlight-border, #8da9d8);
+  color: #496487;
+}
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-note strong { color: #35558c; }
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-edit-form input,
+html[data-ui="agent"]:not([data-theme="dark"]) .favorite-edit-form textarea { background: #ffffff; }
+
+/* ---- 学习产出浮层的标题栏 ----
+   冷蓝化 + 紧凑化。academic 那套标题规则（styles.css 12055/12241/12313）里
+   grid 布局与 21px 巨标题是给三栏工作台调的；agent 布局是一整屏浮层，图标栏已经
+   说明了「你在哪个功能」，所以标题栏只保留一行小字功能名。
+   注意 academic 的这些规则带布局属性（grid/字号），不能靠脚本换作用域搬过来。 */
+
+html[data-ui="agent"] .studio-panel.studio-focus .studio-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto;
+  grid-template-areas: "title actions";
+  align-items: center;
+  gap: 10px 14px;
+  min-height: 52px;
+  height: auto;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--agent-line);
+  background: var(--panel);
+}
+/* 主标题压到正文级：21px 的巨标题在一整屏浮层里既抢视线又不含信息 */
+html[data-ui="agent"] .studio-panel.studio-focus .studio-heading h2 {
+  font-size: calc(14px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+/* "STUDIO" 这行小标签在只有一行标题时是纯噪声 */
+html[data-ui="agent"] .studio-panel.studio-focus .studio-heading-title .eyebrow { display: none; }
+/* 「返回对话」按钮（#studio-expand-button，agent 下文案由 app.js 改成「返回对话」）
+   和 JS 注入的「导出知识库」都住在 .studio-heading-actions 里。基础样式给的是
+   grid + grid-template-areas，所以这里必须显式落位 —— 之前用 display:contents 把
+   动作摊平成 grid item 再用 order:-2 排序是按 flex 想的，结果两个动作被自动布局
+   甩进第 2 行，导出按钮拉成整行满宽（视觉上像多出一根横条），返回按钮被挤出可视区。 */
+html[data-ui="agent"] .studio-panel.studio-focus .studio-heading-title { grid-area: title; }
+html[data-ui="agent"] .studio-panel.studio-focus .studio-heading-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  position: static;
+  margin-left: 0;
+}
+html[data-ui="agent"] .studio-panel.studio-focus .studio-heading-actions > .vault-export-entry {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+html[data-ui="agent"] .studio-panel.studio-focus .studio-expand-button {
+  flex: 0 0 auto;
+  border-color: var(--agent-line);
+  background: var(--panel);
+  color: var(--ink);
+}
+html[data-ui="agent"] .studio-panel.studio-focus .studio-expand-button:hover {
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+
+/* ---- 台历打卡格：强度色阶 ----
+   这三条不能像别的绿那样换成 var(--green)：is-low/mid/high 的深浅本身 就是「当天学习量」的
+   编码，压成同一个颜色等于把信息抹掉。styles.css 的共享规则是绿色阶（760 行）与暗色阶
+   （9527 行），academic 那边已经有蓝色阶（12201 行起），这里照抄成 agent 作用域，
+   共享规则保持不动 —— classic 主题的台历仍然是绿的。 */
+html[data-ui="agent"] .streak-day-cell.is-low  { background: #e5f0ff; color: #1d4a80; }
+html[data-ui="agent"] .streak-day-cell.is-mid  { background: #b9d5fa; color: #143b6c; }
+html[data-ui="agent"] .streak-day-cell.is-high { background: #6796d7; color: #081f40; }
+html[data-ui="agent"][data-theme="dark"] .streak-day-cell.is-low  { background: #1b2c47; color: #cfe0f8; }
+html[data-ui="agent"][data-theme="dark"] .streak-day-cell.is-mid  { background: #24406b; color: #e2edfb; }
+html[data-ui="agent"][data-theme="dark"] .streak-day-cell.is-high { background: #3867d6; color: #0b1220; }
+

@@ -1,0 +1,21 @@
+# 本项目自带的最小流水线。
+#
+# 为什么需要它：仓库里没有 .gitlab-ci.yml 时，GitLab 会为项目注入 Auto DevOps 模板流水线，
+# 那套模板在本项目必然失败（实测 pipeline #538 的三个失败作业）：
+#   - build        ：登录依赖代理被拒 403 Forbidden
+#   - test         ：herokuish buildpack 明确不支持 Python 项目的 test
+#   - code_quality ：镜像只有 linux/amd64，而共享 runner 是 linux/arm64/v8 → exec format error
+# 仓库里一旦存在 .gitlab-ci.yml，Auto DevOps 就不再注入模板。
+#
+# 本流水线刻意保持「零依赖、零第三方镜像」：只用标准库 + python:3.11-slim
+# （官方镜像自带 arm64 版本），不装 requirements、不拉其他镜像，
+# 因此不受 runner 架构差异与内网镜像策略影响，最不容易变红。
+
+stages:
+  - check
+
+check:
+  stage: check
+  image: python:3.11-slim
+  script:
+    - python src/tools/ci_gate.py

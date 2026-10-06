@@ -1,0 +1,679 @@
+/* ==========================================================================
+   语义护照（Knowledge Passport）—— 知识图谱右侧栏
+   --------------------------------------------------------------------------
+   配色全部走项目既有变量（--ink / --line / --panel / --green …），不新增色板：
+   项目的深色调由 html[data-brand][data-theme="dark"] 定义，硬编码色值会让护照在
+   换品牌时变成「另一个产品」。
+
+   学习状态只作为顶部 2px 色线存在，不落成任何数字或文字徽章。
+
+   .framework-shell 的列定义被多方覆盖，各条特异性都高于本文件能安全覆盖的范围：
+     styles.css        .studio-panel:not(.studio-focus) .framework-shell  (0,3,0)
+     agent-layout.css  html[data-ui="agent"] .studio-panel.studio-focus
+                       .framework-shell                                      (0,4,1)
+   继续往 grid-template-columns 上叠规则是打不赢的，而且两列一落空，第三个
+   grid item 就会换行掉到第二行、压在目录栏上。真正可靠的锚点是显式指定
+   host 落在第 3 列第 1 行：列数不足时 grid 会自己造一条隐式列
+   （auto 宽度 = 内容宽度 = 420px），于是无论谁定义 grid-template-columns，
+   护照都在图右侧、永远不会换行。
+   ========================================================================== */
+
+html[data-kb-passport="open"] .kb-passport-host {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+@media (max-width: 1100px) {
+  html[data-kb-passport="open"] .kb-passport-host {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+.kb-passport-host {
+  --kp-tone: var(--line, #ded7ca);
+  --kp-tone-lit: var(--green, #6b9e5c);
+  --kp-tone-partial: #d4a843;
+  --kp-tone-dim: #b9b2a4;
+  --kp-tone-blocked: var(--red, #c75c5c);
+  --kp-tone-wait: #8b7fd4;
+  /* 让右栏独立滚动，靠的是 sticky + max-height，不是 height:100%。
+     height:100% 在这里没用：grid 行高由最高的那个 item 决定，而这个 item
+     自己就是内容最多的那个 —— 于是它把行撑高，内部的 overflow-y 永远不滚，
+     看起来就只是整页在滚。
+     max-height 把它压在一屏之内，.kp-scroll 才有确定的可用高度可以滚；
+     sticky 则让它在整页（图 + 下方卡片）往下滚时始终留在视野里。 */
+  align-self: start;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+  width: var(--kp-w, 420px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #fffdf8);
+  color: var(--ink, #2d2a26);
+  border-left: 1px solid var(--line, #ded7ca);
+  box-shadow: -18px 0 48px -28px rgba(30, 22, 10, .45);
+  animation: kp-slide-in .2s cubic-bezier(.22, 1, .36, 1);
+}
+
+/* justify-self:end 是"往右收起"的兜底：竖条必须贴住自己那一列的右缘。
+   万一列宽比护照宽（变量没同步上的情况），多出来的空隙让给左边，
+   而不是让竖条停在中间偏左、看着像收错了方向。 */
+.kb-passport-host.is-collapsed {
+  width: var(--kb-side-collapsed, 46px);
+  justify-self: end;
+  animation: kp-slide-out .18s cubic-bezier(.4, 0, .7, .3);
+}
+@keyframes kp-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: .2; transform: translateX(16px); }
+}
+.kb-passport-host.is-collapsed .kp-head,
+.kb-passport-host.is-collapsed .kp-scroll,
+.kb-passport-host.is-collapsed .kp-actions { display: none; }
+.kb-passport-host.is-collapsed .kp-rail { display: flex; }
+
+.kb-grip[hidden] { display: none; }
+.kb-passport-host[hidden] { display: none; }
+
+
+.kb-mechanism {
+  flex: none;
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+.kb-mechanism[hidden] { display: none; }
+
+.kb-mec {
+  border: 1px solid var(--line, #ded7ca);
+  border-radius: 12px;
+  background: var(--panel, #faf5ea);
+  box-shadow: 0 10px 26px -22px rgba(30, 22, 10, .5);
+  overflow: hidden;
+}
+.kb-mec-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 13px;
+  background: linear-gradient(180deg, var(--green-soft, #eef4ea), transparent);
+}
+.kb-mec[data-open="true"] .kb-mec-head { border-bottom: 1px solid var(--line, #ded7ca); }
+.kb-mec-kicker {
+  flex: none; font-size: calc(11px * var(--font-scale, 1)); font-weight: 700;
+  letter-spacing: .08em; color: var(--green-dark, #4f7d43);
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--green-soft, #eef4ea); border: 1px solid var(--green, #6b9e5c);
+}
+.kb-mec-title {
+  flex: 1 1 auto; min-width: 0;
+  font-size: calc(13px * var(--font-scale, 1)); font-weight: 600; color: var(--ink, #2d2a26);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kb-mec-count { flex: none; font-size: calc(11.5px * var(--font-scale, 1)); color: var(--muted, #777168); }
+.kb-mec-toggle {
+  flex: none; border: 1px solid var(--line, #ded7ca); border-radius: 7px; cursor: pointer;
+  padding: 2px 9px; font: inherit; font-size: calc(11.5px * var(--font-scale, 1));
+  background: var(--panel, #fffdf8); color: var(--muted, #777168);
+}
+.kb-mec-toggle:hover { border-color: var(--green, #6b9e5c); color: var(--green-dark, #4f7d43); }
+/* ⚠️ 这里**不能**再做成滚动区（原来是 max-height:40vh + overflow-y:auto +
+   overscroll-behavior:contain）。图谱下方整块是跟着 #studio-output 一起滚的，
+   卡片正文自己再滚一层，就变成「鼠标停在推导 / 自检上滚不动，得把指针挪到空白处
+   才滚得动」：滚轮被卡在卡片里，contain 又把滚动链截断，一个滚不动的小盒子
+   把整页滚动吃掉了。内容长有「收起 / 展开」按钮负责，不需要第二根滚动条。 */
+.kb-mec-body {
+  padding: 4px 0 6px;
+}
+.kb-mec-body[hidden] { display: none; }
+
+
+.kb-mec-steps { list-style: none; margin: 0; padding: 0; }
+.kb-mec-step {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 7px 13px 7px 11px;
+  font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.72; color: var(--ink, #2d2a26);
+}
+.kb-mec-step + .kb-mec-step { border-top: 1px dashed var(--line, #ded7ca); }
+.kb-mec-step:hover { background: var(--sidebar, #f0ebe0); }
+.kb-mec-num {
+  flex: none; width: 21px; height: 21px; margin-top: 1px;
+  display: grid; place-items: center;
+  border-radius: 50%; font-size: calc(11px * var(--font-scale, 1)); font-weight: 700;
+  color: #fff; background: var(--green, #6b9e5c);
+  box-shadow: 0 2px 5px -2px rgba(30, 22, 10, .6);
+}
+.kb-mec-line { min-width: 0; flex: 1 1 auto; }
+.kb-mec-line .kp-fx-inline { white-space: nowrap; }
+
+
+.kb-mec-checks { display: grid; }
+.kb-mec-check { border-bottom: 1px dashed var(--line, #ded7ca); }
+.kb-mec-check:last-child { border-bottom: 0; }
+.kb-mec-check-q {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 8px 13px; cursor: pointer; list-style: none;
+  font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.65; color: var(--ink, #2d2a26);
+}
+.kb-mec-check-q::-webkit-details-marker { display: none; }
+.kb-mec-check-q:hover { background: var(--sidebar, #f0ebe0); }
+.kb-mec-check-n {
+  flex: none; width: 20px; height: 20px; margin-top: 1px;
+  display: grid; place-items: center; border-radius: 6px;
+  font-size: calc(11px * var(--font-scale, 1)); font-weight: 700;
+  color: var(--green-dark, #4f7d43); background: var(--green-soft, #eef4ea);
+  border: 1px solid var(--green, #6b9e5c);
+}
+.kb-mec-check[open] .kb-mec-check-n { color: #fff; background: var(--green, #6b9e5c); }
+.kb-mec-check-a {
+  padding: 2px 13px 11px 42px;
+  font-size: calc(13px * var(--font-scale, 1)); line-height: 1.72;
+  color: var(--muted, #777168);
+}
+.kb-mec-check-a::before {
+  content: "答 ";
+  color: var(--green-dark, #4f7d43); font-weight: 700;
+}
+
+
+.kb-mec-ground {
+  margin: 4px 13px 8px; padding: 8px 12px;
+  border-left: 3px solid var(--green, #6b9e5c); border-radius: 0 8px 8px 0;
+  background: var(--sidebar, #f0ebe0);
+  font-size: calc(13px * var(--font-scale, 1)); line-height: 1.75; color: var(--ink, #2d2a26);
+}
+
+
+.kb-mec-note {
+  padding: 8px 13px 10px;
+  font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.78; color: var(--ink, #2d2a26);
+}
+
+
+.kp-sec-pointer .kp-sec-head { cursor: pointer; }
+.kp-sec-pointer .kp-sec-head:hover { background: var(--green-soft, #eef4ea); }
+/* 指引行点下去是"跳到图谱下方"，不是"在这里展开"。原来的展开/收起尖角会骗人：
+   点了之后护照这一行毫无变化，用户会以为按钮坏了。换成右箭头。 */
+.kp-sec-pointer .kp-sec-count {
+  color: var(--green-dark, #4f7d43); opacity: 1; font-weight: 600;
+}
+.kp-sec-pointer .kp-sec-chev {
+  border: 0; width: 0; height: 0; background: transparent; border-radius: 0;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--green, #6b9e5c);
+}
+
+
+/* 拖动把手：12px 宽的隐形命中区，中间一条 2px 的线。
+   静止时留一点淡线（opacity .18）—— 完全隐形的把手没人找得到，
+   "怎么把护照弄宽"这个问题就得每次重新问一遍。
+   hover / 拖动时才变深。 */
+.kb-grip {
+  position: absolute; top: 0; bottom: 0; z-index: 8;
+  width: 12px; padding: 0; border: 0; background: transparent; cursor: col-resize;
+  touch-action: none; -webkit-user-select: none; user-select: none;
+}
+.kb-grip::after {
+  content: ""; position: absolute; top: 14px; bottom: 14px;
+  left: 50%; width: 2px; margin-left: -1px;
+  border-radius: 1px; background: var(--green, #6b9e5c); opacity: .18;
+  transition: opacity .15s ease;
+}
+.kb-grip:hover::after, .kb-grip:focus-visible::after,
+body.kb-side-dragging .kb-grip::after { opacity: .85; }
+.kb-grip:focus-visible { outline: 2px solid var(--green, #6b9e5c); outline-offset: -2px; }
+
+/* 护照左缘 = 与图谱的分界线，这是主拖动位：往左拖变宽。
+   之前这条线被放在右缘，而右缘就是窗口右缘 —— 抓着它往左拖虽然也会
+   改宽度，但那个位置没有任何"边界"的视觉提示，用户根本不会去试。 */
+.kb-grip-inner { left: 0; right: auto; }
+/* 右缘也在窗口边上，只能往窄里拖；留着它是为了两条边都能调。 */
+.kb-grip-outer { right: 0; left: auto; }
+
+.framework-view { position: relative; min-width: 0; }
+.kb-grip-left { left: 0; right: auto; }
+body.kb-side-dragging { cursor: col-resize; user-select: none; }
+
+
+.kb-side-rail {
+  display: none;
+  flex-direction: column; align-items: center; gap: 8px;
+  width: 100%; padding: 10px 0;
+  border: 0; background: transparent; cursor: pointer;
+  font: inherit; color: var(--muted, #777168);
+}
+.kb-side-rail:hover { background: var(--sidebar, #f0ebe0); color: var(--ink, #2d2a26); }
+.kb-side-rail-label {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 600; letter-spacing: .1em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 100%;
+}
+.kb-side-rail-glyph {
+  flex: none; width: 16px; height: 16px; background: currentColor;
+  -webkit-mask: var(--kb-rail-glyph) center / contain no-repeat;
+  mask: var(--kb-rail-glyph) center / contain no-repeat;
+}
+.kb-side-rail-glyph.expand {
+  --kb-rail-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M12.5 4.5h3v3M15.5 4.5 10.5 9.5M7.5 15.5h-3v-3M4.5 15.5 9.5 10.5' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+/* 宸︽爮鏀惰捣鎬?*/
+.framework-sidebar-left.is-collapsed { display: flex; }
+.framework-sidebar-left.is-collapsed > :not(.kb-side-rail) { display: none; }
+.framework-sidebar-left.is-collapsed { width: var(--kb-side-collapsed, 46px); padding: 10px 0; }
+.framework-sidebar-left.is-collapsed .kb-side-rail { display: flex; }
+
+.kb-grip[hidden] { display: none; }
+
+
+html[data-kb-left-collapsed="true"] .framework-shell,
+html[data-kb-left-collapsed="true"] .studio-panel .framework-shell,
+html[data-ui="agent"][data-kb-left-collapsed="true"] .studio-panel.studio-focus .framework-shell,
+html[data-ui="agent"][data-kb-left-collapsed="true"] .studio-panel:not(.studio-focus) .framework-shell,
+html[data-ui="classic"][data-kb-left-collapsed="true"] .studio-panel .framework-shell {
+  grid-template-columns: var(--kb-side-collapsed, 46px) minmax(0, 1fr);
+}
+
+html[data-kb-passport="open"][data-kb-left-collapsed="true"] .framework-shell,
+html[data-kb-passport="open"][data-kb-left-collapsed="true"] .studio-panel .framework-shell,
+html[data-ui="agent"][data-kb-passport="open"][data-kb-left-collapsed="true"] .studio-panel.studio-focus .framework-shell,
+html[data-ui="agent"][data-kb-passport="open"][data-kb-left-collapsed="true"] .studio-panel:not(.studio-focus) .framework-shell {
+  grid-template-columns: var(--kb-side-collapsed, 46px) minmax(0, 1fr) var(--kp-w, 420px);
+}
+
+/* 窄栏（非 .studio-focus）里左侧目录栏整块是 display:none
+   （styles.css 的 `.studio-panel:not(.studio-focus) .framework-sidebar`），
+   上面那两条折叠规则再留一条 46px 的轨就没意义了：列 1 里一个 item 都没有，
+   而 .framework-view 是流内第一个 grid item，会被自动放进这条空列 ——
+   于是图谱被压成 46px 竖线、右边 183px 一片空白（截图里那个竖条就是它）。
+   折叠轨只在目录栏真的渲染时才有意义（展开态 .studio-focus），窄栏必须退回单列。
+   必须排在上面几条之后：与上面 classic 那条同特异性（0,4,1），靠顺序取胜；
+   agent 那条是 (0,5,1)，所以 agent 的作用域要单独重写一遍。 */
+html[data-kb-left-collapsed="true"] .studio-panel:not(.studio-focus) .framework-shell,
+html[data-ui="agent"][data-kb-left-collapsed="true"] .studio-panel:not(.studio-focus) .framework-shell,
+html[data-ui="classic"][data-kb-left-collapsed="true"] .studio-panel:not(.studio-focus) .framework-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@keyframes kp-slide-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kb-passport-host,
+  .kb-passport-host.is-collapsed { animation: none; }
+}
+
+html[data-theme="dark"] .kb-passport-host { background: var(--panel); box-shadow: -18px 0 48px -22px rgba(0, 0, 0, .6); }
+html[data-theme="dark"] .kb-passport-host {
+  --kp-tone-partial: var(--gold, #d4a843);
+  --kp-tone-dim: var(--line, #ded7ca);
+  --kp-tone-wait: #a396e8;
+}
+
+@media (max-width: 1100px) {
+  html[data-kb-passport="open"] .studio-panel .framework-shell,
+  html[data-kb-passport="open"] .framework-shell { grid-template-columns: 220px minmax(0, 1fr); }
+  .kb-passport-host {
+    position: absolute; inset: 0 0 0 auto; width: min(420px, 100%);
+    border-left: 1px solid var(--line, #ded7ca);
+  }
+}
+
+.kp-head { position: relative; flex: none; padding: 16px 18px 12px; border-bottom: 1px solid var(--line, #ded7ca); }
+.kp-head::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 2px;
+  background: linear-gradient(90deg, var(--kp-tone), transparent 78%);
+}
+
+
+.kp-crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 16px; margin-bottom: 6px; }
+.kp-crumb {
+  border: 0; background: transparent; padding: 1px 2px; border-radius: 5px; cursor: pointer;
+  font: inherit; font-size: calc(11.5px * var(--font-scale, 1)); color: var(--muted, #777168);
+  max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kp-crumb:hover { background: var(--sidebar, #f0ebe0); color: var(--ink, #2d2a26); }
+.kp-crumb-sep { color: var(--line, #ded7ca); font-size: calc(11px * var(--font-scale, 1)); }
+
+.kp-crumb-now { width: 0; padding: 0; overflow: hidden; }
+
+.kp-title-row { display: flex; align-items: flex-start; gap: 8px; }
+.kp-title {
+  flex: 1 1 auto; min-width: 0; margin: 0;
+  font-size: calc(20px * var(--font-scale, 1)); font-weight: 700; line-height: 1.3;
+  letter-spacing: -.01em;
+}
+.kp-close {
+  flex: none; border: 0; background: transparent; cursor: pointer; border-radius: 8px;
+  padding: 2px 8px; font-size: calc(17px * var(--font-scale, 1)); line-height: 1;
+  color: var(--muted, #777168); margin-top: 2px;
+}
+.kp-close:hover { background: var(--red-soft, #f8e1df); color: var(--red, #c75c5c); }
+.kp-collapse {
+  flex: none; border: 1px solid var(--line, #ded7ca); border-radius: 7px; cursor: pointer;
+  padding: 1px 7px 2px; font-size: calc(13px * var(--font-scale, 1)); line-height: 1;
+  color: var(--muted, #777168); background: transparent; margin-top: 3px;
+}
+.kp-collapse:hover { border-color: var(--green, #6b9e5c); color: var(--green-dark, #4f7d43); background: var(--green-soft, #eef4ea); }
+
+
+.framework-sidebar-collapse {
+  margin-left: auto; border: 1px solid var(--line, #ded7ca); border-radius: 7px; cursor: pointer;
+  padding: 1px 7px 2px; font-size: calc(13px * var(--font-scale, 1)); line-height: 1;
+  color: var(--muted, #777168); background: transparent; flex: none;
+}
+.framework-sidebar-collapse:hover { border-color: var(--green, #6b9e5c); color: var(--green-dark, #4f7d43); background: var(--green-soft, #eef4ea); }
+
+
+
+/* 这一块是"右侧栏唯一会滚的地方"：
+   flex:1 + min-height:0 让它吃掉剩余高度，overflow-y 让内容超出时自己滚，
+   overscroll-behavior:contain 把滚动链截断 —— 滚到顶/底不带动整页，
+   用户在读右侧栏时，背景的图谱和下方的卡片不会跟着晃。
+   高度能生效的前提是 host 那边 height:100% + min-height:0 已就位。 */
+/* 排版尺度是按 420px 那一档定的：正文超过 14px 后，一行放不下多少字，
+   读起来全是断行，反而不像一段说明。所以正文压到 13.5px 上下，
+   靠 line-height 1.75 保住透气感，而不是靠字号。 */
+.kp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 16px 22px;
+  scrollbar-gutter: stable;
+  /* 滚动条做细、做淡：它跟内容列挨得很近，默认样式会抢阅读的注意力 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line, #ded7ca) transparent;
+}
+.kp-scroll::-webkit-scrollbar { width: 9px; }
+.kp-scroll::-webkit-scrollbar-track { background: transparent; }
+.kp-scroll::-webkit-scrollbar-thumb {
+  background: var(--line, #ded7ca); border-radius: 5px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+.kp-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--muted, #777168); background-clip: content-box;
+}
+.kp-scroll:focus-visible { outline: 2px solid var(--green, #6b9e5c); outline-offset: -2px; }
+
+.kp-summary {
+  margin: 0 0 10px;
+  font-size: calc(14.5px * var(--font-scale, 1)); line-height: 1.7;
+  color: var(--ink, #2d2a26);
+}
+.kp-summary-none { margin: 0 0 6px; }
+.kp-degraded {
+  margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.6; color: var(--muted, #777168);
+  background: var(--sidebar, #f0ebe0); border-left: 2px solid var(--kp-tone-partial);
+}
+.kp-prose { font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.75; color: var(--ink, #2d2a26); }
+.kp-prose p { margin: 0 0 .7em; }
+.kp-prose strong { font-weight: 700; }
+.kp-prose code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: .92em; padding: 1px 5px; border-radius: 4px;
+  background: var(--sidebar, #f0ebe0);
+}
+.kp-note-prose { color: var(--muted, #777168); }
+
+
+.kp-prose-clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.kp-clamp.is-open .kp-prose-clamp { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.kp-more {
+  border: 0; background: transparent; cursor: pointer; padding: 2px 0; margin-top: 2px;
+  font: inherit; font-size: calc(12.5px * var(--font-scale, 1)); font-weight: 600;
+  color: var(--green-dark, #4f7d43);
+}
+.kp-more:hover { text-decoration: underline; }
+.kp-inline-btn {
+  border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit;
+  font-size: inherit; color: var(--green-dark, #4f7d43); text-decoration: underline;
+}
+
+
+/* 分区间距收到 18px：420px 的栏里，20px 的缝连着五段就吃掉小半屏。 */
+.kp-sec { margin-top: 18px; }
+.kp-sec:first-of-type { margin-top: 14px; }
+.kp-sec-head {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  border: 0; background: transparent; cursor: pointer; padding: 4px 0; text-align: left;
+  font: inherit; color: var(--muted, #777168);
+  border-radius: 6px;
+}
+.kp-sec-head:hover { background: var(--sidebar, #f0ebe0); }
+.kp-sec-head:hover .kp-sec-title { color: var(--ink, #2d2a26); }
+.kp-sec-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--line, #ded7ca); }
+.kp-dot-lit { background: var(--green, #6b9e5c); }
+.kp-dot-partial { background: #d4a843; }
+.kp-dot-dim { background: #b9b2a4; }
+.kp-dot-blocked { background: var(--red, #c75c5c); }
+.kp-dot-wait { background: #8b7fd4; }
+.kp-dot-frontend { background: #3a7bd5; }
+.kp-dot-backend { background: var(--green, #6b9e5c); }
+.kp-dot-database { background: #7c5cd6; }
+.kp-dot-messagebus { background: #e07b39; }
+.kp-dot-cloud { background: #d4a843; }
+.kp-dot-security { background: var(--red, #c75c5c); }
+.kp-dot-external { background: #8b8173; }
+
+.kp-sec-title {
+  font-size: calc(12px * var(--font-scale, 1)); font-weight: 700;
+  letter-spacing: .07em; color: inherit;
+}
+.kp-sec-meta {
+  margin-left: auto; font-size: calc(11.5px * var(--font-scale, 1)); color: var(--muted, #777168);
+  opacity: .75; font-variant-numeric: tabular-nums;
+}
+.kp-sec-chev {
+  flex: none; width: 8px; height: 8px; margin-left: 7px; opacity: .5;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform .16s ease;
+}
+.kp-sec[data-open="true"] .kp-sec-chev { transform: rotate(-135deg) translate(-2px, -2px); }
+.kp-sec-body { padding: 4px 0 2px 13px; }
+.kp-none {
+  margin: 2px 0; font-size: calc(12.5px * var(--font-scale, 1)); line-height: 1.6;
+  color: var(--muted, #777168); opacity: .62;
+}
+
+
+/* 承接与递进：前置 → 当前 → 后继 三个芯片。
+   窄栏里横排放不下，所以允许换行；芯片内部 label 是 10px 的小前缀、
+   名字才是主体 —— 反过来的话「前置几何光学术语与符号」会被读成一句话。
+   （旧版 .kp-flow / .kp-stop-k / .kp-stop-self 是上一轮的 class，JS 已不再输出。） */
+.kp-stops { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kp-stop {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  max-width: 100%; min-width: 0; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--line, #ded7ca); background: var(--panel, #fffdf8);
+  font: inherit; font-size: calc(12.5px * var(--font-scale, 1));
+  color: var(--ink, #2d2a26); cursor: pointer; text-align: left;
+}
+.kp-stop:disabled { cursor: default; }
+.kp-stop:not(:disabled):hover { border-color: var(--green, #6b9e5c); color: var(--green-dark, #4f7d43); }
+.kp-stop-label {
+  flex: none; font-size: calc(10px * var(--font-scale, 1)); font-weight: 700;
+  letter-spacing: .08em; color: var(--muted, #777168); opacity: .85;
+}
+.kp-stop-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kp-stop.is-now {
+  border-color: var(--green, #6b9e5c); background: var(--green-soft, #eef4ea);
+  color: var(--green-dark, #4f7d43); font-weight: 700;
+}
+.kp-stop.is-now .kp-stop-label { color: var(--green-dark, #4f7d43); opacity: 1; }
+.kp-why { margin: 9px 0 0; font-size: calc(12.5px * var(--font-scale, 1)); line-height: 1.72; color: var(--muted, #777168); }
+
+
+
+
+.kp-fx {
+  margin: 0 0 10px; border: 1px solid var(--line, #ded7ca); border-radius: 10px;
+  background: var(--sidebar, #f0ebe0); overflow: hidden;
+}
+.kp-fx-tex { padding: 12px 14px; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.kp-fx-tex .katex { font-size: 1.04em; }
+.kp-fx-meta { padding: 0 14px 10px; display: grid; gap: 4px; }
+.kp-fx-row { display: grid; grid-template-columns: 2.6em minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.kp-fx-k {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: calc(10.5px * var(--font-scale, 1)); font-weight: 700; letter-spacing: .06em;
+  color: var(--muted, #777168); opacity: .72;
+}
+.kp-fx-v { font-size: calc(12.5px * var(--font-scale, 1)); line-height: 1.65; color: var(--ink, #2d2a26); }
+
+
+.kp-fx-inline { display: inline; white-space: nowrap; }
+.kp-fx-inline .katex { font-size: 1.02em; }
+
+.kp-fx-block {
+  display: block; margin: 8px 0; text-align: center;
+  overflow-x: auto; overflow-y: hidden;
+}
+.kp-fx-block .katex { font-size: 1.06em; }
+
+.kp-fx-inline code, .kp-fx-block code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: .92em; padding: 0 3px; border-radius: 4px;
+  background: var(--sidebar, #f0ebe0); color: var(--ink, #2d2a26);
+}
+
+
+
+.kp-steps { margin: 0; padding: 0 0 0 4px; list-style: none; counter-reset: kp-step; }
+.kp-steps li {
+  position: relative; padding: 0 0 12px 26px;
+  font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.7; color: var(--ink, #2d2a26);
+  counter-increment: kp-step;
+}
+.kp-steps li:last-child { padding-bottom: 0; }
+.kp-steps li::before {
+  content: counter(kp-step); position: absolute; left: 0; top: 1px;
+  width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+  font-size: calc(10.5px * var(--font-scale, 1)); font-weight: 700;
+  color: var(--green-dark, #4f7d43); background: var(--green-soft, #eef4ea);
+  border: 1px solid color-mix(in srgb, var(--green, #6b9e5c) 32%, transparent);
+}
+.kp-steps li::after {
+  content: ""; position: absolute; left: 8.5px; top: 21px; bottom: 2px; width: 1px;
+  background: var(--line, #ded7ca);
+}
+.kp-steps li:last-child::after { display: none; }
+
+
+
+.kp-pit {
+  border: 1px solid var(--line, #ded7ca); border-radius: 10px; overflow: hidden;
+  margin-bottom: 10px;
+}
+.kp-pit-side { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 9px 12px; }
+.kp-pit-side + .kp-pit-side { border-top: 1px solid var(--line, #ded7ca); }
+.kp-pit-sign { font-size: calc(12px * var(--font-scale, 1)); line-height: 1.5; text-align: center; }
+.kp-pit-k {
+  display: block; font-size: calc(10.5px * var(--font-scale, 1)); font-weight: 700;
+  letter-spacing: .08em; opacity: .78;
+}
+.kp-pit-side p { margin: 2px 0 0; font-size: calc(13px * var(--font-scale, 1)); line-height: 1.68; }
+.kp-pit-wrong { background: color-mix(in srgb, var(--red, #c75c5c) 13%, var(--panel, #fffdf8)); color: var(--ink, #2d2a26); }
+.kp-pit-wrong .kp-pit-sign { color: var(--red, #c75c5c); }
+.kp-pit-right { background: color-mix(in srgb, var(--green, #6b9e5c) 13%, var(--panel, #fffdf8)); color: var(--ink, #2d2a26); }
+.kp-pit-right .kp-pit-sign { color: var(--green, #6b9e5c); }
+
+
+
+
+
+.kp-rels { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.kp-rel {
+  display: grid; grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline; gap: 7px; width: 100%; text-align: left;
+  border: 0; background: transparent; cursor: pointer; padding: 6px 8px; border-radius: 8px;
+  font: inherit;
+}
+.kp-rel:hover { background: var(--sidebar, #f0ebe0); }
+.kp-rel-kind {
+  font-size: calc(10px * var(--font-scale, 1)); font-weight: 700; letter-spacing: .06em;
+  padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+  color: var(--green-dark, #4f7d43); background: var(--green-soft, #eef4ea);
+}
+.kp-rel-name {
+  font-size: calc(13px * var(--font-scale, 1)); font-weight: 600; color: var(--ink, #2d2a26);
+  max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kp-rel-note { font-size: calc(12px * var(--font-scale, 1)); line-height: 1.6; color: var(--muted, #777168); }
+.kp-wikilink {
+  border: 0; background: transparent; padding: 0 1px; cursor: pointer; font: inherit;
+  color: var(--green-dark, #4f7d43); text-decoration: underline; text-underline-offset: 2px;
+}
+
+
+
+.kp-check { border-bottom: 1px solid var(--line, #ded7ca); }
+.kp-check:last-child { border-bottom: 0; }
+.kp-check-q {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr) 10px; align-items: start; gap: 8px;
+  padding: 9px 2px; cursor: pointer; list-style: none;
+  font-size: calc(13.5px * var(--font-scale, 1)); line-height: 1.62; color: var(--ink, #2d2a26);
+}
+.kp-check-q::-webkit-details-marker { display: none; }
+.kp-check-n {
+  display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  font-size: calc(10.5px * var(--font-scale, 1)); font-weight: 700;
+  color: var(--muted, #777168); background: var(--sidebar, #f0ebe0);
+}
+.kp-check-a {
+  padding: 0 2px 12px 28px; font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.7; color: var(--muted, #777168);
+}
+
+
+
+.kp-ground {
+  margin: 0; padding: 8px 12px; border-left: 2px solid var(--kp-tone-dim, #b9b2a4);
+  background: var(--sidebar, #f0ebe0); border-radius: 0 8px 8px 0;
+  font-size: calc(12.5px * var(--font-scale, 1)); line-height: 1.72; color: var(--muted, #777168);
+}
+
+
+.kp-state { padding: 26px 18px; text-align: center; }
+.kp-state p { margin: 0 0 8px; font-size: calc(13px * var(--font-scale, 1)); line-height: 1.7; color: var(--muted, #777168); }
+.kp-state-lead { font-size: calc(15px * var(--font-scale, 1)) !important; font-weight: 600; color: var(--ink, #2d2a26) !important; }
+.kp-state-sub { text-align: left; }
+.kp-state-actions { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+.kp-state-err p { color: var(--red, #c75c5c); }
+.kp-spin {
+  display: inline-block; width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--line, #ded7ca); border-top-color: var(--green, #6b9e5c);
+  animation: kp-spin .8s linear infinite; margin-bottom: 8px;
+}
+@keyframes kp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .kp-spin { animation: none; } }
+
+
+.kp-actions {
+  flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 10px 18px; border-top: 1px solid var(--line, #ded7ca);
+  background: linear-gradient(180deg, var(--panel, #fffdf8), var(--background, #faf8f3));
+}
+html[data-theme="dark"] .kp-actions { background: linear-gradient(180deg, var(--panel), var(--background)); }
+.kp-btn {
+  border: 1px solid var(--line, #ded7ca); border-radius: 9px; cursor: pointer;
+  padding: 5px 11px; font: inherit; font-size: calc(12.5px * var(--font-scale, 1)); font-weight: 600;
+  background: var(--background, #faf8f3); color: var(--ink, #2d2a26); white-space: nowrap;
+}
+.kp-btn:hover { border-color: var(--green, #6b9e5c); color: var(--green-dark, #4f7d43); }
+.kp-btn-primary { border-color: var(--green, #6b9e5c); background: var(--green, #6b9e5c); color: #fff; }
+.kp-btn-primary:hover { background: var(--green-dark, #4f7d43); color: #fff; }
+html[data-theme="dark"] .kp-btn { background: var(--background); color: var(--ink); }
+.kp-stamp {
+  margin-left: auto; font-size: calc(11px * var(--font-scale, 1));
+  color: var(--muted, #777168); opacity: .7; font-variant-numeric: tabular-nums;
+}
+.kp-tail {
+  margin: 22px 0 0; font-size: calc(11.5px * var(--font-scale, 1)); line-height: 1.7;
+  color: var(--muted, #777168); opacity: .7;
+}

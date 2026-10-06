@@ -1,0 +1,944 @@
+/* =====================================================
+   海小棠桌宠 (Hai Xiaotang Pet) · 透明浮空版
+   设计目标：不限制在方框、多锚点吸附吸附、透明头像露出、对话复用主界面
+   ------------------------------------------------------
+   设计语言：骨架色天大主题淡蓝 + 海棠粉 IP点缀，对话气泡纯白
+   前缀：全局用 `hxt-` 避免命名冲突
+   ===================================================== */
+:root {
+  --hxt-sky: #4f8cff;             /* 主色：天大主题淡蓝 */
+  --hxt-sky-soft: #7fa8e8;
+  --hxt-sky-mist: #eaf1fc;        /* 淡蓝雾底 */
+  --hxt-ink: #34506b;
+  --hxt-ink-soft: #8aa4bd;
+  --hxt-petal: #e98ba8;           /* 海棠粉 */
+  --hxt-petal-soft: #f7dbe6;
+  --hxt-white: #ffffff;
+  --hxt-line: #e2ecf8;
+  --hxt-shadow: 0 8px 24px rgba(79,140,255,.16), 0 1px 6px rgba(79,140,255,.08);
+  --hxt-drag-shadow: 0 12px 36px rgba(79,140,255,.22);
+}
+
+/* ---------- 核心：固定定位 + 不占文档流 + 吸附系统 ---------- */
+#hxt-pet {
+  position: fixed;
+  z-index: 2147483000; /* 高于其他UI，但不高于模态框 */
+  user-select: none;
+  -webkit-user-drag: none;
+  cursor: grab;
+  background: transparent !important;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+/* 拖动时禁用一切过渡，彻底消除"拖着个框"的残影 */
+#hxt-pet.hxt-dragging,
+#hxt-pet.hxt-dragging * { transition: none !important; }
+#hxt-pet.hxt-dragging { cursor: grabbing; }
+
+/* 吸附/归位时用柔和磁力过渡（只过渡位置，不影响其他） */
+#hxt-pet[data-magnet="true"] { transition: left .22s cubic-bezier(.2,.8,.2,1), top .22s cubic-bezier(.2,.8,.2,1); }
+#hxt-pet.hxt-hidden { display: none !important; }
+
+/* ---------- 姿态与尺寸 ---------- */
+/* 海小棠换用"实色填色版"形象：人物本身不透明、轮廓实心，
+   透明背景在浅/深两套主题下都清晰，无需再加卡片底板 */
+.hxt-avatar-wrap {
+  position: relative;
+  background: transparent;
+  overflow: visible;
+  will-change: transform;
+  transition: width .2s ease, height .2s ease;
+}
+/* 形象本体：强制透明，禁用任何可能被系统/浏览器深色化注入的滤镜与混色，
+   防止个别环境下桌宠出现黑底方块 */
+#hxt-pet,
+#hxt-pet .hxt-avatar-wrap,
+#hxt-pet .hxt-avatar-wrap img {
+  color-scheme: only light;   /* 阻止 Chrome 自动深色把透明区染黑 */
+  mix-blend-mode: normal;
+  -webkit-filter: none;
+  filter: none;
+  background: transparent !important;
+}
+.hxt-avatar-wrap img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  background: transparent;
+  /* 像素画保持锐利，逐帧动画不清边 */
+  image-rendering: pixelated;
+  -ms-interpolation-mode: nearest-neighbor;
+  /* 必须能接收点击：去掉 pointer-events:none */
+  cursor: pointer;
+}
+/* 高清插画帧（hxt-hd）：平滑渲染，不启用像素化 */
+.hxt-avatar-wrap img.hxt-hd {
+  image-rendering: auto;
+  -ms-interpolation-mode: bicubic;
+}
+
+/* ---------- 身体部位热区（摸头 / 戳一戳 / 挠痒） ---------- */
+.hxt-zone {
+  position: absolute;
+  z-index: 3;
+  cursor: pointer;
+  display: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(79,140,255,.10), transparent 70%);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.hxt-zone:hover { opacity: 1; }
+.hxt-stand-full .hxt-zone, .hxt-stand-half .hxt-zone { display: block; }
+.hxt-zone-head { left: 22%; top: 4%; width: 56%; height: 34%; }
+.hxt-zone-body { left: 20%; top: 40%; width: 60%; height: 38%; }
+.hxt-zone-feet { left: 26%; top: 80%; width: 48%; height: 18%; }
+.hxt-stand-half .hxt-zone-feet { display: none; } /* 半身态只留头/身两区 */
+
+/* 部位反馈一次性动画（做完归位） */
+.hxt-zone-head-anim { animation: hxt-headpat .9s ease-in-out; }
+.hxt-zone-body-anim { animation: hxt-bounce-kf .7s ease-in-out; }
+.hxt-zone-feet-anim { animation: hxt-feet-kf .9s ease-in-out; }
+@keyframes hxt-headpat {
+  0%,100% { transform: translateY(0) scale(1); }
+  30%     { transform: translateY(-7px) scale(1.03); }
+  60%     { transform: translateY(0) scale(.99); }
+  80%     { transform: translateY(-3px); }
+  100%    { transform: translateY(0) scale(1); }
+}
+@keyframes hxt-feet-kf {
+  0%,100% { transform: rotate(0) translateY(0); }
+  20%     { transform: rotate(-6deg) translateY(-2px); }
+  40%     { transform: rotate(6deg); }
+  60%     { transform: rotate(-4deg) translateY(-1px); }
+  80%     { transform: rotate(3deg); }
+  100%    { transform: rotate(0) translateY(0); }
+}
+
+/* 姿态尺寸定义：统一角色显示高度，扒框/站立/休息切换不突兀。
+   宽度由 fitWrap 按当前动作帧宽高比动态计算，这里只锁高度基准 */
+.hxt-stand-full { width: 150px; height: 150px; }   /* 站立，完整形象（自由态） */
+.hxt-stand-half { width: 150px; height: 150px; }
+/* 扒着对话框边缘的默认态：与站立同一身高，切换形象时不跳变 */
+.hxt-stand-half.hxt-clutch-sm { height: 150px; }
+.hxt-crouch {    width: 130px; height: 120px; }    /* 趴窝（引导模式贴边趴着） */
+.hxt-rest {      width: 150px; height: 150px; }    /* 侧坐休息（长时间没人理） */
+.hxt-sleep {     width: 150px; height: 150px; }    /* 睡眠，蜷成一团 */
+
+/* ---------- 矢量形象（hxt-sprite.js 生成的 SVG） ---------- */
+.hxt-vec { display: block; position: relative; z-index: 1; }
+.hxt-vec svg.hxt-v-svg {
+  display: block; width: 100%; height: 100%;
+  overflow: visible;               /* 爪尖/花瓣探出画布也不被切 */
+  filter: drop-shadow(0 3px 6px rgba(201,112,140,.18));
+}
+/* 呼吸：轴心在底部，爪子始终贴着滑轨线 */
+.hxt-v-body { transform-box: view-box; transform-origin: 60px 148px; animation: hxt-v-breathe 3.4s ease-in-out infinite; }
+@keyframes hxt-v-breathe { 0%,100%{transform:translateY(0) scaleY(1)} 50%{transform:translateY(-1.6px) scaleY(1.012)} }
+/* 眨眼：安静害羞，低频小幅度 */
+.hxt-v-eye { transform-box: fill-box; transform-origin: center; animation: hxt-v-blink 5.2s ease-in-out infinite; }
+@keyframes hxt-v-blink { 0%,92%,100%{transform:scaleY(1)} 95%{transform:scaleY(.12)} 98%{transform:scaleY(1)} }
+/* 爪子轻微交替抓握 */
+.hxt-v-pawL,.hxt-v-pawR { transform-box: view-box; transform-origin: 60px 148px; animation: hxt-v-grip 2.6s ease-in-out infinite; }
+.hxt-v-pawR { animation-delay: .35s; }
+@keyframes hxt-v-grip { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-1.2px)} }
+/* 举起的爪子：挥手 / 害羞 */
+.hxt-v-wave { transform-box: view-box; transform-origin: 90px 110px; animation: hxt-v-wave 1.5s ease-in-out infinite; }
+@keyframes hxt-v-wave { 0%,100%{transform:rotate(-8deg)} 50%{transform:rotate(14deg)} }
+.hxt-v-shypaw { transform-box: view-box; transform-origin: 90px 110px; animation: hxt-v-shy 2.4s ease-in-out infinite; }
+@keyframes hxt-v-shy { 0%,100%{transform:translate(0,0) rotate(0)} 50%{transform:translate(-1px,1.5px) rotate(-6deg)} }
+/* Zzz */
+.hxt-v-zzz { animation: hxt-v-zzz 2.6s ease-in-out infinite; }
+@keyframes hxt-v-zzz { 0%{opacity:0;transform:translate(0,0) scale(.8)} 30%{opacity:.9} 100%{opacity:0;transform:translate(6px,-14px) scale(1.1)} }
+/* 拖拽时不抖动，跟手 */
+#hxt-pet.hxt-dragging .hxt-v-body,
+#hxt-pet.hxt-dragging .hxt-v-eye,
+#hxt-pet.hxt-dragging .hxt-v-pawL,
+#hxt-pet.hxt-dragging .hxt-v-pawR { animation: none !important; }
+
+/* 悬停放大：方便交互 */
+#hxt-pet:not(.hxt-dragging) .hxt-avatar-wrap:hover {
+  transform: translateY(-4px);
+  transition: transform .18s ease;
+}
+
+/* ---------- 休息态背景飘落花瓣 ---------- */
+/* 角色盖在花瓣上方，花瓣只作身后氛围 */
+#hxt-pet .hxt-avatar-wrap { z-index: 1; }
+#hxt-pet .hxt-petals {
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  width: 190px;
+  height: 150px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 0;
+  display: none;
+}
+#hxt-pet.hxt-petal-mode .hxt-petals { display: block; }
+.hxt-petal {
+  position: absolute;
+  top: -16px;
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: hxt-petal-fall 4s linear infinite;
+}
+.hxt-petal::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #ffc9d9, #f8aac6 55%, #ef90b2);
+  border-radius: 100% 0 100% 0;
+  box-shadow: inset 0 0 3px rgba(255, 255, 255, .55);
+}
+@keyframes hxt-petal-fall {
+  0%   { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 0; }
+  10%  { opacity: var(--o, .85); }
+  50%  { transform: translate(var(--sway, 14px), 64px) rotate(150deg) scale(.96); }
+  90%  { opacity: var(--o, .85); }
+  100% { transform: translate(calc(var(--sway, 14px) * 1.5), 132px) rotate(320deg) scale(.88); opacity: 0; }
+}
+
+/* ---------- 磁吸附点：四大吸附位 ---------- */
+.hxt-anchor-top-right { /* 右上（连学火苗旁） */
+  right: auto !important; bottom: auto !important;
+}
+.hxt-anchor-bottom-left { /* 左下（输入框旁） */
+  left: auto !important; bottom: auto !important;
+}
+.hxt-anchor-right-panel { /* 右侧面板内（原位置） */
+  right: auto !important; bottom: auto !important;
+}
+
+/* ---------- 交互气泡：功能选项 / 关怀消息 ---------- */
+.hxt-bubble {
+  position: absolute;
+  background: var(--hxt-white);
+  border: 1px solid var(--hxt-line);
+  border-radius: 14px;
+  box-shadow: var(--hxt-shadow);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--hxt-ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: .24s;
+  z-index: 2;
+  min-width: 180px;
+  max-width: 336px;
+  text-align: left;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.hxt-bubble.hxt-show { opacity: 1; pointer-events: auto; transform: scale(1); }
+.hxt-bubble .hxt-bt {
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--hxt-ink);
+}
+.hxt-bubble .hxt-bt .hxt-bt-ic { font-size: 14px; }
+.hxt-bubble .hxt-close {
+  position: absolute;
+  top: 5px; right: 7px;
+  border: none; background: none;
+  color: var(--hxt-ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  opacity: .7;
+  padding: 0 2px;
+}
+/* 选项卡：快捷功能菜单 */
+.hxt-menu {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.hxt-menu button {
+  border: 1px solid var(--hxt-line);
+  background: var(--hxt-sky-mist);
+  color: var(--hxt-ink);
+  padding: 6px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  transition: .15s;
+}
+.hxt-menu button:hover {
+  background: var(--hxt-sky);
+  color: #fff;
+  border-color: var(--hxt-sky);
+}
+
+/* 气泡三角指向：基于姿态方向 */
+.hxt-bubble::after {
+  content: "";
+  position: absolute;
+  border: 6px solid transparent;
+}
+/* 气泡在头像右上方 → 三角向下左 */
+.hxt-bubble.hxt-top-left::after {
+  left: 20px; bottom: -6px;
+  border-top-color: var(--hxt-white);
+}
+.hxt-bubble.hxt-bottom-right::after {
+  right: 18px; top: -6px;
+  border-bottom-color: var(--hxt-white);
+}
+
+/* ---------- toast：轻提示 ---------- */
+.hxt-toast {
+  position: fixed;
+  bottom: 100px;
+  right: 40px;
+  z-index: 2147483001;
+  background: var(--hxt-white);
+  border: 1px solid var(--hxt-line);
+  box-shadow: var(--hxt-shadow);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  max-width: 320px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--hxt-ink);
+  font-family: "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  opacity: 0;
+  pointer-events: none;
+  transition: .3s;
+  transform: translateY(10px);
+}
+.hxt-toast.hxt-show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.hxt-toast .hxt-toast-ic { font-size: 16px; line-height: 1.2; }
+
+/* ---------- 待机：稳稳待着，不再一直上下飘 ---------- */
+.hxt-idle    { animation: hxt-settle 5.5s ease-in-out infinite; }
+.hxt-static  { animation: none !important; transform: none !important; } /* 扒框默认态：完全静止，只有拖拽才动 */
+.hxt-wave    { animation: hxt-sway 1.9s ease-in-out infinite; }
+.hxt-float   { animation: hxt-float 3.4s ease-in-out infinite; }
+@keyframes hxt-settle{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+@keyframes hxt-bob  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+@keyframes hxt-sway{ 0%,100%{transform:rotate(-1.5deg)} 50%{transform:rotate(1.5deg) translateY(-2px)} }
+@keyframes hxt-float{ 0%,100%{transform:translateY(0) rotate(-2deg)} 50%{transform:translateY(-9px) rotate(2deg)} }
+
+/* ---------- 一次性的可爱小动作（由桌宠空闲时随机播放，做完归位） ---------- */
+.hxt-bounce { animation: hxt-bounce-kf .95s ease-in-out; }
+.hxt-tilt   { animation: hxt-tilt-kf 1.25s ease-in-out; }
+.hxt-peek   { animation: hxt-peek-kf 1.05s ease-in-out; }
+.hxt-nap    { animation: hxt-nap-kf 1.7s ease-in-out infinite; }
+@keyframes hxt-bounce-kf{
+  0%,100% { transform: translateY(0) scale(1); }
+  25%     { transform: translateY(-15px) scale(1.04); }
+  55%     { transform: translateY(0) scale(.98); }
+  72%     { transform: translateY(-6px) scale(1.02); }
+  85%     { transform: translateY(0) scale(1); }
+}
+@keyframes hxt-tilt-kf{
+  0%,100% { transform: rotate(0) translateY(0); }
+  25%     { transform: rotate(8deg) translateY(-2px); }
+  55%     { transform: rotate(-6deg) translateY(-1px); }
+  80%     { transform: rotate(4deg) translateY(0); }
+  100%    { transform: rotate(0) translateY(0); }
+}
+@keyframes hxt-peek-kf{
+  0%,100% { transform: translate(0,0) rotate(0); }
+  35%     { transform: translate(16px,6px) rotate(4deg); }
+  62%     { transform: translate(-7px,0) rotate(-2deg); }
+  82%     { transform: translate(3px,0); }
+  100%    { transform: translate(0,0); }
+}
+@keyframes hxt-nap-kf{
+  0%,100% { transform: translateY(0) rotate(0); }
+  50%     { transform: translateY(3px) rotate(-2.5deg) scale(.98); }
+}
+
+/* ---------- 滑轨溜达：小碎步摇摆（wander 移动时的反馈） ----------
+   挂在 img 上而不是 wrap：扒框态 wrap 带 hxt-static(animation:none!important) 会吞掉动画 */
+.hxt-avatar-wrap img.hxt-waddle, .hxt-vec.hxt-waddle { animation: hxt-waddle-kf .5s ease-in-out infinite; }
+@keyframes hxt-waddle-kf {
+  0%,100% { transform: rotate(-2.5deg) translateY(0); }
+  50%     { transform: rotate(2.5deg) translateY(-2px); }
+}
+
+/* ---------- 互动反馈：跳跃庆祝 / 惊讶震动 / 飞吻上浮 ---------- */
+.hxt-jump  { animation: hxt-jump-kf 1.05s ease-in-out; }
+.hxt-shake { animation: hxt-shake-kf .6s ease-in-out; }
+.hxt-love  { animation: hxt-love-kf 1.2s ease-in-out; }
+@keyframes hxt-jump-kf{
+  0%,100% { transform: translateY(0) scale(1); }
+  18%     { transform: translateY(-26px) scale(1.02); }
+  30%     { transform: translateY(-30px) scale(.99); }
+  46%     { transform: translateY(0) scale(1.03); }
+  58%     { transform: translateY(-10px) scale(1.01); }
+  72%     { transform: translateY(0) scale(.99); }
+}
+@keyframes hxt-shake-kf{
+  0%,100% { transform: translateX(0) scale(1); }
+  15%     { transform: translateX(-5px) scale(1.04); }
+  30%     { transform: translateX(5px) scale(.98); }
+  45%     { transform: translateX(-4px) scale(1.03); }
+  60%     { transform: translateX(4px) scale(.99); }
+  75%     { transform: translateX(-2px) scale(1.01); }
+}
+@keyframes hxt-love-kf{
+  0%,100% { transform: translateY(0) rotate(0); }
+  30%     { transform: translateY(-8px) rotate(-4deg) scale(1.04); }
+  60%     { transform: translateY(-14px) rotate(4deg) scale(1.06); }
+  80%     { transform: translateY(-6px) rotate(-2deg) scale(1.02); }
+}
+
+/* ---------- 状态小标签：在气泡内显示吸附状态/陪伴数据 ---------- */
+.hxt-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  border: 1px solid var(--hxt-line);
+  background: var(--hxt-sky-mist);
+  color: var(--hxt-sky);
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+/* ---------- 成长条：吸附到右上时显示 ---------- */
+.hxt-growth {
+  position: absolute;
+  bottom: -8px;
+  left: 10%;
+  width: 80%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hxt-sky-mist);
+  overflow: hidden;
+  opacity: .8;
+}
+.hxt-growth i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--hxt-sky), var(--hxt-petal));
+  border-radius: 3px;
+  transition: width .9s ease;
+}
+
+/* 吸附时遮罩底层提示，避免误触发主界面点击 */
+#hxt-pet::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+  z-index: -1;
+}
+#hxt-pet.hxt-anchor::before { display: none; } /* 吸附在UI旁不需要遮罩 */
+
+/* ---------- 主界面回复头像：海小棠代问时显示海小棠形象 ---------- */
+.assistant-message .avatar.hxt-pet-avatar {
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 10px;
+  object-fit: cover;
+  /* v6 帧是全身竖构图，裁剪时聚焦脸部（花冠+脸占画面上部） */
+  object-position: center 30%;
+  padding: 0;
+}
+.assistant-message .avatar.hxt-pet-avatar::after { display: none; }
+
+/* ---------- 深色主题适配：气泡 / 菜单 / 输入框 / toast ---------- */
+html[data-theme="dark"] #hxt-pet .hxt-bubble,
+html[data-theme="dark"] #hxtToast {
+  background: #1d2a44;
+  border-color: rgba(126, 164, 232, 0.22);
+  color: #dbe7f6;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+}
+html[data-theme="dark"] #hxt-pet .hxt-bubble .hxt-bt { color: #eaf1fc; }
+html[data-theme="dark"] #hxt-pet .hxt-bubble .hxt-close { color: #a9bfdd; }
+html[data-theme="dark"] #hxt-pet .hxt-menu button {
+  border-color: rgba(126, 164, 232, 0.22);
+  background: rgba(35, 52, 84, 0.7);
+  color: #dbe7f6;
+}
+html[data-theme="dark"] #hxt-pet .hxt-free-input {
+  background: #16223a !important;
+  color: #dbe7f6 !important;
+  border-color: rgba(126, 164, 232, 0.28) !important;
+}
+html[data-theme="dark"] #hxt-pet .hxt-growth { background: rgba(126, 164, 232, 0.18); }
+
+/* ---------- 知识花园：让掌握度可视化成一株株海棠 ---------- */
+.hxt-garden-open {
+  width: 340px;
+  max-width: 92vw;
+}
+.hxt-garden { margin-top: 6px; }
+.hxt-garden-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.hxt-garden-empty {
+  color: var(--hxt-ink-soft);
+  font-size: 12px;
+  padding: 6px 2px;
+  line-height: 1.6;
+}
+.hxt-garden-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.hxt-flower {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--hxt-line);
+  background: var(--hxt-white);
+  cursor: pointer;
+  text-align: left;
+  transition: transform .14s ease, box-shadow .14s ease;
+}
+.hxt-flower:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--hxt-shadow);
+}
+.hxt-flower .hxt-flower-ic { font-size: 18px; line-height: 1; }
+.hxt-flower-name {
+  font-size: 11.5px;
+  color: var(--hxt-ink);
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hxt-flower-pct { font-size: 10.5px; color: var(--hxt-ink-soft); }
+.hxt-flower-bloomed { border-color: var(--hxt-petal); }
+.hxt-flower-bloomed .hxt-flower-pct { color: #c96a87; }
+.hxt-flower-open { border-color: var(--hxt-line); background: var(--hxt-sky-mist); }
+.hxt-flower-bud { opacity: .82; }
+.hxt-flower-wilted { border-color: #c9b9a8; background: #f5f1ea; }
+.hxt-flower-wilted .hxt-flower-name { color: #8a7a66; }
+
+/* ---------- 海小棠日记卡 ---------- */
+.hxt-diary-card {
+  border: 1px solid var(--hxt-line);
+  border-radius: 10px;
+  background: var(--hxt-white);
+  padding: 8px 11px;
+  margin-top: 6px;
+}
+.hxt-diary-card.hxt-diary-today {
+  border-color: var(--hxt-petal);
+  background: linear-gradient(135deg, #fff, var(--hxt-petal-soft));
+}
+.hxt-diary-head {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--hxt-ink);
+  margin-bottom: 3px;
+}
+.hxt-diary-today .hxt-diary-head { color: #c96a87; }
+.hxt-diary-line { font-size: 12px; color: var(--hxt-ink); line-height: 1.7; }
+html[data-theme="dark"] .hxt-diary-card {
+  background: #16223a;
+  border-color: rgba(126, 164, 232, 0.28);
+}
+html[data-theme="dark"] .hxt-diary-card.hxt-diary-today {
+  background: linear-gradient(135deg, #1d2a44, #2a2140);
+  border-color: rgba(233, 139, 168, 0.4);
+}
+html[data-theme="dark"] .hxt-diary-line { color: #c9dbf3; }
+
+/* ---------- 被戳的"惊到"动画（欺负反馈） ---------- */
+@keyframes hxt-flinch-kf {
+  0%   { transform: translate(0, 0) }
+  20%  { transform: translate(-6px, 2px) rotate(-3deg) }
+  40%  { transform: translate(5px, -2px) rotate(2deg) }
+  60%  { transform: translate(-4px, 1px) rotate(-2deg) }
+  80%  { transform: translate(3px, -1px) rotate(1deg) }
+  100% { transform: translate(0, 0) }
+}
+#hxt-pet.hxt-flinch { animation: hxt-flinch-kf .5s ease; }
+#hxt-pet.hxt-flinch .hxt-avatar-wrap img { filter: saturate(1.15) brightness(.98); }
+
+/* ---------- 专属大对话框：与海小棠单独聊天 ---------- */
+.hxt-dialog {
+  box-sizing: border-box;
+  position: fixed;
+  right: 22px;
+  bottom: 20px;
+  z-index: 2147483010; /* 高于桌宠本体 */
+  width: 486px;
+  max-width: 95vw;
+  height: 660px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--hxt-white);
+  border: 1px solid var(--hxt-line);
+  border-radius: 20px;
+  box-shadow: 0 22px 60px rgba(79,140,255,.24), 0 4px 14px rgba(79,140,255,.1);
+  font-family: "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  color: var(--hxt-ink);
+  overflow: hidden;
+  transition: box-shadow .2s ease;
+}
+.hxt-dialog.hxt-hidden { display: none; }
+.hxt-dialog-moving { cursor: move; user-select: none; box-shadow: 0 28px 70px rgba(79,140,255,.32), 0 6px 18px rgba(79,140,255,.16); }
+.hxt-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 14px;
+  background: linear-gradient(135deg, #e6f0ff, #eef7fb), var(--hxt-white);
+  border-bottom: 1px solid var(--hxt-line);
+  cursor: move;
+  -webkit-user-select: none; user-select: none;
+}
+.hxt-dialog-headright { display: flex; align-items: center; gap: 6px; }
+.hxt-dialog-dragtip { font-size: 14px; line-height: 1; color: var(--hxt-ink-soft); opacity: .55; padding: 2px 4px; cursor: move; }
+.hxt-dialog-title { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.hxt-dialog-pet {
+  flex: none; width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px; line-height: 1;
+  background: linear-gradient(145deg, #bfe0ff, #dff2ff);
+  box-shadow: 0 2px 8px rgba(79,140,255,.25), inset 0 0 0 2px #fff;
+}
+.hxt-dialog-title strong { font-size: 15px; color: var(--hxt-ink); display: block; }
+.hxt-dialog-title small { font-size: 11.5px; color: var(--hxt-ink-soft); display: block; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hxt-dialog-close {
+  border: none; background: none; font-size: 18px; line-height: 1;
+  color: var(--hxt-ink-soft); cursor: pointer; padding: 3px 7px; border-radius: 8px;
+}
+.hxt-dialog-close:hover { background: rgba(79,140,255,.12); color: var(--hxt-ink); }
+.hxt-dialog-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 14px 4px;
+}
+.hxt-dchip {
+  border: 1px solid var(--hxt-line); background: var(--hxt-sky-mist);
+  color: var(--hxt-sky); font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  cursor: pointer; transition: .15s;
+}
+.hxt-dchip:hover { background: var(--hxt-sky); color: #fff; border-color: var(--hxt-sky); }
+.hxt-dialog-msgs {
+  flex: 1; overflow-y: auto; padding: 8px 14px 6px; display: flex; flex-direction: column; gap: 8px;
+}
+.hxt-dmsg { display: flex; gap: 8px; max-width: 92%; }
+.hxt-dmsg-avatar {
+  flex: none; width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1;
+  background: linear-gradient(145deg, #c9e3ff, #e6f4ff);
+  box-shadow: 0 1px 6px rgba(79,140,255,.22), inset 0 0 0 1.5px #fff;
+  margin-top: 2px;
+}
+.hxt-dmsg-b {
+  padding: 8px 11px; border-radius: 12px; font-size: 13px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+}
+.hxt-dmsg-pet { align-self: flex-start; }
+.hxt-dmsg-pet .hxt-dmsg-b { background: var(--hxt-sky-mist); border: 1px solid var(--hxt-line); border-top-left-radius: 3px; }
+.hxt-dmsg-user { align-self: flex-end; }
+.hxt-dmsg-user .hxt-dmsg-b { background: var(--hxt-sky); color: #fff; border-top-right-radius: 3px; }
+.hxt-dialog-inputrow {
+  display: flex; gap: 8px; padding: 10px 14px 14px; border-top: 1px solid var(--hxt-line);
+}
+.hxt-dialog-inputrow input {
+  flex: 1; border: 1px solid var(--hxt-line); background: var(--hxt-sky-mist);
+  color: var(--hxt-ink); border-radius: 10px; padding: 9px 12px; font-size: 13px;
+  outline: none; box-sizing: border-box;
+}
+.hxt-dialog-inputrow input:focus { border-color: var(--hxt-sky); }
+.hxt-dialog-send {
+  border: none; background: var(--hxt-sky); color: #fff; border-radius: 10px;
+  padding: 0 16px; font-size: 13px; cursor: pointer; transition: .15s;
+}
+.hxt-dialog-send:hover { background: #3d7bee; }
+
+/* ---------- 聊天框内的富内容卡片（进度 / 花园 / 校园速查） ---------- */
+.hxt-dmsg-rich { max-width: 100%; width: 100%; }
+.hxt-dmsg-rich .hxt-dmsg-b {
+  flex: 1;
+  background: var(--hxt-sky-mist);
+  border: 1px solid var(--hxt-line);
+  border-top-left-radius: 3px;
+}
+.hxt-rich-title { font-weight: 700; color: var(--hxt-ink); font-size: 13.5px; margin-bottom: 3px; }
+.hxt-rich-sub  { color: var(--hxt-ink-soft); font-size: 12px; margin-bottom: 8px; }
+.hxt-rich-tip  { color: var(--hxt-ink); font-size: 12.5px; margin-top: 8px; line-height: 1.6; }
+.hxt-progress-row { display: flex; flex-wrap: wrap; gap: 4px; }
+/* 聊天框里的花园复用糖果色按钮，竖排一列更跟手 */
+.hxt-dmsg-rich .hxt-garden-grid {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+  margin-top: 4px;
+}
+html[data-theme="dark"] .hxt-dialog-pet,
+html[data-theme="dark"] .hxt-dmsg-avatar {
+  background: linear-gradient(145deg, #1f3a63, #2b4d7d);
+  box-shadow: 0 2px 8px rgba(79,140,255,.3), inset 0 0 0 2px rgba(255,255,255,.14);
+}
+html[data-theme="dark"] .hxt-dmsg-rich .hxt-dmsg-b {
+  background: rgba(35, 52, 84, 0.7);
+  border-color: rgba(126, 164, 232, 0.22);
+}
+html[data-theme="dark"] .hxt-dmsg-rich .hxt-rich-title { color: #eaf1fc; }
+html[data-theme="dark"] .hxt-dmsg-rich .hxt-rich-sub,
+html[data-theme="dark"] .hxt-dmsg-rich .hxt-rich-tip { color: #c9dbf3; }
+
+/* =====================================================
+   图谱联动提示（陪游 / 浇园关照 / 双链探链）
+   落在图谱节点 <g>[data-node-id] 上，随图谱平移/缩放自动跟随；
+   用 SVG 安全的 drop-shadow 光晕表达，不插入框、不污染原图谱。
+   ===================================================== */
+#studio-output [data-node-id].hxt-tour-active {
+  filter: drop-shadow(0 0 5px rgba(233,139,168,.95)) drop-shadow(0 0 14px rgba(233,139,168,.5));
+  opacity: 1;
+}
+#studio-output [data-node-id].hxt-care-ring {
+  filter: drop-shadow(0 0 5px rgba(79,140,255,.95)) drop-shadow(0 0 15px rgba(79,140,255,.55));
+}
+#studio-output [data-node-id].hxt-island-ring {
+  filter: drop-shadow(0 0 3px rgba(150,111,214,.6)) drop-shadow(0 0 12px rgba(150,111,214,.4));
+  opacity: 1;
+}
+
+/* =====================================================
+   聊天框入口 UI + 静音模式（2026-09-11 新增）
+   ===================================================== */
+
+/* ---------- 桌宠右下角的常驻入口按钮 ----------
+   以前只能"单击桌宠"才发现聊天框，还得等 300ms 判双击，新用户基本找不到。
+   现在一枚呼吸的小圆钮常驻在她的右下角，悬停展开「找海小棠聊聊」。
+   2026-09-11：从头顶挪到右下角 —— 头顶那条位置会跟右下角的聊天框、面板头部抢地方。
+   落位口径：容器 150×150，形象 object-fit:contain + center bottom，实际人物只占中间
+   88px 宽（pet_sit），按钮落点基本是她身侧的空白（与人物重叠约 1.5%）；
+   bottom:12px 让按钮下沿停在输入框上沿之上（她脚底比输入框上沿低 8px）。 */
+.hxt-launcher {
+  position: absolute;
+  right: -2px;
+  bottom: 12px;
+  z-index: 5;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--hxt-line);
+  background: var(--hxt-white);
+  box-shadow: 0 6px 16px rgba(79,140,255,.22), 0 1px 3px rgba(79,140,255,.14);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  animation: hxt-launcher-breathe 3.6s ease-in-out infinite;
+  transition: box-shadow .18s ease, background .18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.hxt-launcher:hover { box-shadow: 0 10px 22px rgba(233,139,168,.3), 0 2px 6px rgba(79,140,255,.18); }
+.hxt-launcher:active { background: var(--hxt-sky-mist); }
+.hxt-launcher-ic { display: block; pointer-events: none; }
+/* 呼吸光环：轻轻提示"这里能点"，不抢视线 */
+.hxt-launcher::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid rgba(233,139,168,.5);
+  opacity: 0;
+  pointer-events: none;
+  animation: hxt-launcher-ring 3.6s ease-out infinite;
+}
+@keyframes hxt-launcher-breathe { 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(-3px) } }
+@keyframes hxt-launcher-ring { 0%{ opacity:.55; transform: scale(.9) } 70%,100%{ opacity:0; transform: scale(1.38) } }
+.hxt-launcher-tx {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;                 /* 从右下角向左上展开：右对齐，贴屏幕右边缘也不会被裁 */
+  transform: translateY(4px);
+  white-space: nowrap;
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--hxt-white);
+  color: var(--hxt-ink);
+  border: 1px solid var(--hxt-line);
+  box-shadow: var(--hxt-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.hxt-launcher:hover .hxt-launcher-tx { opacity: 1; transform: translateY(0); }
+/* 静音模式：按钮熄灭、停掉呼吸动画，明确表示"她现在很安静" */
+.hxt-launcher-quiet { animation: none; background: var(--hxt-sky-mist); }
+.hxt-launcher-quiet::after { display: none; }
+/* 聊天框开着、或正在拖动她的时候，先把这个入口收起来，别和别的东西打架 */
+#hxt-pet.hxt-chatting .hxt-launcher,
+#hxt-pet.hxt-dragging .hxt-launcher { display: none; }
+/* 静音模式：连身后飘落的花瓣也停掉，安静到底 */
+#hxt-pet.hxt-quiet .hxt-petals { display: none !important; }
+
+/* ---------- 聊天框头部的小图标按钮（静音模式） ---------- */
+.hxt-dialog-iconbtn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .68;
+  transition: background .15s ease, opacity .15s ease;
+}
+.hxt-dialog-iconbtn:hover { background: rgba(79,140,255,.12); opacity: 1; }
+.hxt-dialog-iconbtn.hxt-on { opacity: 1; background: rgba(79,140,255,.14); }
+
+/* ---------- 聊天框首屏快捷入口（天大知识 / 进度 / 花园 / 日记） ---------- */
+.hxt-dialog-chips {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hxt-dialog-chips::-webkit-scrollbar { display: none; }
+.hxt-dchip { white-space: nowrap; flex: 0 0 auto; }
+
+/* ---------- 聊天框弹出动画 ---------- */
+.hxt-dialog-in { animation: hxt-dialog-pop .34s cubic-bezier(.2,.9,.25,1.05); }
+@keyframes hxt-dialog-pop {
+  0%   { opacity: 0; transform: translateY(14px) scale(.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---------- 设置面板里注入的说明文字 ---------- */
+.settings-account-hint.hxt-settings-hint {
+  margin: 2px 0 0;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  line-height: 1.6;
+  opacity: .82;
+}
+.hxt-settings-hint code {
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(79,140,255,.12);
+}
+
+/* ---------- 深色主题适配 ---------- */
+/* 说明：原深色规则只覆盖了气泡/toast/菜单，没覆盖「专属聊天框」外壳，
+   于是深色主题下这个框会突兀地保持白底。这里把整框补齐。 */
+html[data-theme="dark"] .hxt-dialog {
+  background: #16223a;
+  border-color: rgba(126, 164, 232, 0.24);
+  color: #dbe7f6;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55), 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="dark"] .hxt-dialog-head {
+  background: linear-gradient(135deg, #1d2a44, #23345c);
+  border-bottom-color: rgba(126, 164, 232, 0.22);
+}
+html[data-theme="dark"] .hxt-dialog-title strong { color: #eaf1fc; }
+html[data-theme="dark"] .hxt-dialog-title small { color: #94aecf; }
+html[data-theme="dark"] .hxt-dialog-dragtip { color: #8aa4bd; }
+html[data-theme="dark"] .hxt-dialog-close { color: #a9bfdd; }
+html[data-theme="dark"] .hxt-dialog-close:hover { background: rgba(126, 164, 232, 0.18); color: #eaf1fc; }
+html[data-theme="dark"] .hxt-dmsg-pet .hxt-dmsg-b {
+  background: rgba(35, 52, 84, 0.82);
+  border-color: rgba(126, 164, 232, 0.22);
+  color: #dbe7f6;
+}
+html[data-theme="dark"] .hxt-dialog-inputrow { border-top-color: rgba(126, 164, 232, 0.22); }
+html[data-theme="dark"] .hxt-dialog-inputrow input {
+  background: #111c30;
+  border-color: rgba(126, 164, 232, 0.28);
+  color: #dbe7f6;
+}
+html[data-theme="dark"] .hxt-dialog-inputrow input::placeholder { color: #7b93b3; }
+html[data-theme="dark"] .hxt-rich-title { color: #eaf1fc; }
+html[data-theme="dark"] .hxt-rich-tip { color: #c9dbf3; }
+html[data-theme="dark"] .hxt-dialog-iconbtn { color: #cfe0f5; }
+html[data-theme="dark"] .hxt-garden-empty { color: #94aecf; }
+/* 知识花园 / 日记也开在这个框里，一并换成深色 */
+html[data-theme="dark"] .hxt-flower {
+  background: #16223a;
+  border-color: rgba(126, 164, 232, 0.24);
+}
+html[data-theme="dark"] .hxt-flower .hxt-flower-name { color: #dbe7f6; }
+html[data-theme="dark"] .hxt-flower-open { background: rgba(35, 52, 84, 0.72); }
+html[data-theme="dark"] .hxt-flower-wilted { background: #2a2318; border-color: #4a3f2c; }
+html[data-theme="dark"] .hxt-flower-wilted .hxt-flower-name { color: #c2ae94; }
+html[data-theme="dark"] .hxt-diary-head { color: #eaf1fc; }
+html[data-theme="dark"] .hxt-diary-today .hxt-diary-head { color: #f0a8bf; }
+
+html[data-theme="dark"] .hxt-launcher {
+  background: #1d2a44;
+  border-color: rgba(126, 164, 232, 0.26);
+  color: #eaf1fc;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
+html[data-theme="dark"] .hxt-launcher-quiet { background: rgba(35, 52, 84, 0.9); }
+html[data-theme="dark"] .hxt-launcher:active { background: rgba(35, 52, 84, 0.9); }
+html[data-theme="dark"] .hxt-launcher-tx {
+  background: #1d2a44;
+  border-color: rgba(126, 164, 232, 0.26);
+  color: #dbe7f6;
+}
+html[data-theme="dark"] .hxt-dialog-iconbtn:hover,
+html[data-theme="dark"] .hxt-dialog-iconbtn.hxt-on { background: rgba(126, 164, 232, 0.18); }
+html[data-theme="dark"] .hxt-dchip {
+  background: #16223a;
+  border-color: rgba(126, 164, 232, 0.28);
+  color: #dbe7f6;
+}
+html[data-theme="dark"] .hxt-dchip:hover { background: var(--hxt-sky); color: #fff; }
+
+/* —— 清单报告 / 冲刺清单里的「🌷 问海小棠」入口 ——
+   由 hxt-pet.js 的 enhanceChecklistItems 注入到每条知识点的 <li> 末尾。
+   用 var(--green-dark)（深色主题下已映射成浅色），不加背景，避免 --green-soft
+   在深色下变深绿导致「深字压深底」的对比度坑。 */
+.hxt-ck-ask {
+  border: 0;
+  background: transparent;
+  color: var(--green-dark);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-family: inherit;
+  line-height: 1.6;
+  padding: 0;
+  margin-left: 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  opacity: 0.85;
+}
+.hxt-ck-ask:hover { text-decoration: underline; opacity: 1; }
+.hxt-ck-ask:focus-visible { outline: 2px solid var(--green-dark); outline-offset: 1px; border-radius: 3px; }

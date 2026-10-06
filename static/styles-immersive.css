@@ -1,0 +1,787 @@
+/* ============================================================================
+   styles-immersive.css —— 沉浸感与高级黑增强层 v1
+   ----------------------------------------------------------------------------
+   目标：让「读文档 / 刷卡片 / 做测验 / 看图谱 / 看学习概览」五个场景
+   从"功能性界面"升级为"愿意停留的空间"。
+
+   设计参照（2026-10 调研 Dark Editorial / Linear / Raycast 一类高级暗色语言）：
+     1. 深色拒绝纯黑 #000 —— 用 3~4 层带微冷调的近黑做空间纵深：
+        页底 #0a0b0e → 侧栏 #0d0f13 → 面板 #121419 → 抬升面 #171a20。
+        层与层之间靠 1px 发丝线（rgba 白 6~8%）+ 顶部内高光分开，而不是靠阴影硬砸。
+     2. 环境光：每个场景顶部给一束 4~6% 的品牌色光晕（radial），
+        像展厅射灯 —— 有氛围，但不抢内容。
+     3. 阅读优先：正文区域背景最暗、装饰最少；目录/工具条退成半透明玻璃。
+     4. 动效克制：只做入场浮现与 hover 抬升，全部尊重 prefers-reduced-motion。
+
+   与既有层的关系：
+     ★ styles-polish.css 用 :where() 做优先级 0 的"填空"；本层恰恰相反，
+       用**强选择器**做"定调" —— 因为要压过 knowledge-doc-ui.js 在运行时
+       注入的 <style id="ko-kd-style">（同优先级时后插入者赢，CSS 层压不住它，
+       必须靠 html 前缀抬高特异性）。
+     ★ 只改颜色 / 背景 / 阴影 / 过渡，不动任何布局尺寸 —— 结构性回归为零。
+     ★ accent（品牌色）一律继承令牌：天大蓝 / 默认蓝紫 / 经典绿各自保留。
+
+   加载位置：index.html 中排在 styles-polish.css 之后，全链路最后。
+   ============================================================================ */
+
+/* ==========================================================================
+   §1  深色令牌统一 ——「高级黑」分层色板
+   --------------------------------------------------------------------------
+   四种深色变体（classic 默认 / agent / academic / tju）统一到同一套近黑底，
+   accent 与各品牌 soft 色保留不动。同时补一组沉浸层专用令牌。
+   ========================================================================== */
+
+/* 1a. 经典默认深色（压过 styles-literature.css 的绿黑底） */
+html[data-theme="dark"] {
+  --background: #0a0b0e;
+  --sidebar: #0d0f13;
+  --panel: #121419;
+  --line: #262a32;
+  --ink: #e9ebee;
+  --muted: #9aa2ad;
+
+  /* 沉浸层专用令牌（深色） */
+  --imm-raise: #171a20;                       /* 抬升面：hover / 浮层 */
+  --imm-hairline: rgba(255, 255, 255, 0.07);  /* 发丝线 */
+  --imm-sheen: rgba(255, 255, 255, 0.045);    /* 顶部内高光 */
+  --imm-card-grad: linear-gradient(168deg, #15181e 0%, #10131a 58%, #0e1016 100%);
+  --imm-glow: rgba(var(--green-rgb, 124, 185, 107), 0.55);
+  --imm-ambient: rgba(var(--green-rgb, 124, 185, 107), 0.05);
+  --imm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -12px rgba(0, 0, 0, 0.55);
+  --imm-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 24px 56px -20px rgba(0, 0, 0, 0.7);
+  /* 辉光强度刻意压低（0.22/0.28 → 0.18/0.18）：开着是"有余光"，不是"在发光" */
+  --imm-shadow-glow: 0 0 0 1px rgba(var(--green-rgb, 124, 185, 107), 0.18),
+    0 12px 32px -14px rgba(var(--green-rgb, 124, 185, 107), 0.18),
+    0 28px 64px -24px rgba(0, 0, 0, 0.75);
+}
+
+/* 1b. Agent 工作台深色（agent-layout.css 的蓝灰黑 → 高级黑，蓝 accent 不动） */
+html[data-ui="agent"][data-theme="dark"] {
+  --background: #0a0b0e;
+  --sidebar: #0d0f13;
+  --panel: #121419;
+  --line: #262a32;
+  --agent-rail-bg: #0c0e12;
+  --agent-line-soft: #1e222a;
+}
+
+/* 1c. 学术极简深色（blue-gray → 高级黑，蓝紫 accent 不动） */
+html[data-ui="academic"][data-theme="dark"] {
+  --background: #0a0b0e;
+  --panel: #121419;
+  --sidebar: #0d0f13;
+  --line: #262a32;
+  --ink: #e9ebee;
+  --muted: #9aa2ad;
+  --shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+}
+
+/* 1d. 天大品牌（data-brand="tju"）：★ 本层一律不介入。
+       它的深色已经是「黑为主 + 天大蓝点缀」的既定设计（styles.css 12085 起），
+       且带一整套专属硬编码（校徽 / 侧栏渐变 / 气泡描边等），
+       本层任何令牌级覆盖都会动到品牌观感 —— 保持不动。
+       tju 仍然会吃到下面 §3~§7 的**组件级**沉浸（因为它们走通用
+       html[data-theme="dark"] 作用域，且光晕/描边都用 var(--green-rgb) 自动跟随天大蓝）。 */
+
+/* 浅色也给沉浸令牌一组值（§8 用），避免 var() 落空 */
+html:not([data-theme="dark"]) {
+  --imm-raise: #ffffff;
+  --imm-hairline: rgba(45, 42, 38, 0.10);
+  --imm-sheen: rgba(255, 255, 255, 0.65);
+  --imm-card-grad: linear-gradient(168deg, #fffefb 0%, #fdfbf6 100%);
+  --imm-glow: rgba(var(--green-rgb, 107, 158, 92), 0.35);
+  --imm-ambient: rgba(var(--green-rgb, 107, 158, 92), 0.045);
+  --imm-shadow-1: 0 1px 2px rgba(76, 65, 50, 0.06), 0 10px 28px -14px rgba(76, 65, 50, 0.16);
+  --imm-shadow-2: 0 2px 6px rgba(76, 65, 50, 0.07), 0 26px 60px -22px rgba(76, 65, 50, 0.26);
+  --imm-shadow-glow: 0 0 0 1px rgba(var(--green-rgb, 107, 158, 92), 0.16),
+    0 14px 34px -16px rgba(var(--green-rgb, 107, 158, 92), 0.22);
+}
+
+/* ==========================================================================
+   §2  全局氛围：环境光 / 选区 / 焦点环 / 滚动条
+   ========================================================================== */
+
+/* 2a. 页面环境光：顶部一束品牌色微光 + 底部轻晕，让"黑"有空间而不是一堵墙。
+       注意：tju 品牌不在此列（styles.css 12107 的 body 纯黑底是它的既定设计，
+       本层不碰）。 */
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(1100px 420px at 50% -140px, var(--imm-ambient), transparent 70%),
+    radial-gradient(900px 500px at 92% 108%, rgba(255, 255, 255, 0.025), transparent 65%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+/* 2b. 选区：品牌色玻璃感，深浅色各一档 */
+html[data-theme="dark"] ::selection {
+  background: rgba(var(--green-rgb, 124, 185, 107), 0.30);
+  color: #f4f6f8;
+}
+html:not([data-theme="dark"]) ::selection {
+  background: rgba(var(--green-rgb, 107, 158, 92), 0.22);
+}
+
+/* 2c. 键盘焦点环：全局统一"外圈发光"式 */
+:where(html) :focus-visible {
+  outline: 2px solid rgba(var(--green-rgb, 107, 158, 92), 0.65);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 2d. 深色滚动条：更细、更隐身，悬停才现身 */
+html[data-theme="dark"] *::-webkit-scrollbar { width: 10px; height: 10px; }
+html[data-theme="dark"] *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+html[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.20);
+  background-clip: padding-box;
+}
+html[data-theme="dark"] *::-webkit-scrollbar-track { background: transparent; }
+html[data-theme="dark"] *::-webkit-scrollbar-corner { background: transparent; }
+
+/* ==========================================================================
+   §3  文档阅读（ko-kd 知识点文档阅读器）
+   --------------------------------------------------------------------------
+   目标：一进来就是"深夜书房"—— 正文区最暗最静，目录退成玻璃，
+   进度条是一根发光的灯丝，标题带一点冷光。
+   ========================================================================== */
+
+/* 3a. 整屏背景：近黑 + 顶部环境光（压过 JS 注入的 background: var(--panel)） */
+html #ko-kd-overlay {
+  background:
+    radial-gradient(1000px 380px at 50% -120px, var(--imm-ambient), transparent 72%),
+    var(--background);
+  color: var(--ink);
+}
+
+/* 3b. 顶栏：玻璃化（半透明 + 轻模糊 + 发丝线），内容滚动时从下面透出来 */
+html .ko-kd-bar {
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  border-bottom: 1px solid var(--imm-hairline);
+}
+html[data-theme="dark"] .ko-kd-bar {
+  box-shadow: 0 1px 0 var(--imm-sheen) inset, 0 10px 28px -20px rgba(0, 0, 0, 0.7);
+}
+
+/* 3c. 阅读进度灯丝：细线 + 尖端光点 */
+html .ko-kd-readbar { height: 2px; background: rgba(127, 127, 127, 0.12); }
+html .ko-kd-readbar-fill {
+  background: linear-gradient(90deg,
+    rgba(var(--green-rgb, 107, 158, 92), 0.35),
+    var(--green) 70%,
+    color-mix(in srgb, var(--green) 60%, #fff));
+  box-shadow: 0 0 8px var(--imm-glow), 0 0 2px var(--imm-glow);
+  transition: width 0.1s linear;
+}
+
+/* 3d. 目录：退成侧幕 —— 比正文更暗一层，激活项给品牌色竖灯 */
+html[data-theme="dark"] .ko-kd-toc { background: transparent; }
+html[data-theme="dark"] .ko-kd-toc-title { background: transparent; }
+html .ko-kd-toc-item { transition: background 0.15s ease, color 0.15s ease; }
+html .ko-kd-toc-item.ko-kd-is-active {
+  border-left-color: var(--green);
+  box-shadow: inset 2px 0 6px -2px var(--imm-glow);
+}
+html[data-theme="dark"] .ko-kd-toc-item.ko-kd-is-active {
+  background: linear-gradient(90deg, rgba(var(--green-rgb), 0.14), rgba(var(--green-rgb), 0.03) 70%, transparent);
+}
+
+/* 3e. 正文排版呼吸感：行高略放、段距拉开、首屏标题衬线化 */
+html .ko-kd-body { line-height: 1.82; letter-spacing: 0.005em; }
+html .ko-kd-md h1 {
+  font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+  letter-spacing: 0.01em;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--imm-hairline);
+}
+html[data-theme="dark"] .ko-kd-md h1 {
+  text-shadow: 0 0 32px rgba(var(--green-rgb), 0.25);
+}
+html .ko-kd-md h2::before {
+  box-shadow: 0 0 8px var(--imm-glow);
+}
+html .ko-kd-md h2 {
+  padding-bottom: 8px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--line) 72%, transparent);
+}
+html .ko-kd-md blockquote {
+  border-left: 2px solid rgba(var(--green-rgb), 0.55);
+  background: linear-gradient(90deg, rgba(var(--green-rgb), 0.07), transparent 80%);
+  border-radius: 0 10px 10px 0;
+  padding: 8px 14px;
+}
+html[data-theme="dark"] .ko-kd-md code {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--imm-hairline);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* 3f. 回到顶部按钮：玻璃圆钮悬浮 */
+html .ko-kd-top {
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--imm-hairline);
+  box-shadow: var(--imm-shadow-1), inset 0 1px 0 var(--imm-sheen);
+  transition: transform 0.2s var(--ease-spring, ease), box-shadow 0.2s ease;
+}
+html .ko-kd-top:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--imm-shadow-2), inset 0 1px 0 var(--imm-sheen);
+}
+
+/* 3g. 「问 AI」侧抽屉：玻璃面板，与正文之间那根分隔线在深色下更隐 */
+html[data-theme="dark"] .ko-kd-ask {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ==========================================================================
+   §4  卡片（flip-card 学习卡 / card-viewer 卡片浏览器）
+   --------------------------------------------------------------------------
+   目标：卡片像一块有厚度的"黑曜石"—— 渐变面、发丝高光、hover 时
+   轻抬 + 品牌色辉光。
+   ========================================================================== */
+
+/* 4a. 卡面：渐变 + 顶部内高光 + 发丝边（深色） */
+html[data-theme="dark"] .card.flip-card .flip-card-face {
+  background: var(--imm-card-grad);
+  border: 1px solid var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), 0 10px 28px -18px rgba(0, 0, 0, 0.7);
+}
+html[data-theme="dark"] .card.flip-card .flip-card-back {
+  background:
+    radial-gradient(340px 130px at 50% -30px, var(--imm-ambient), transparent 75%),
+    var(--imm-card-grad);
+}
+
+/* 4b. hover 抬升：默认给"安静版"（中性影、不发光）。
+       辉光由设置里的「卡片辉光」开关控制（html[data-glow="on"]）——
+       发光在长时间刷卡时会刺眼，所以默认关，想要再打开。 */
+html .card.flip-card {
+  transition: transform 0.3s var(--ease-out, ease), box-shadow 0.3s ease, filter 0.3s ease;
+}
+html[data-theme="dark"] .card.flip-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--imm-shadow-2);
+}
+html:not([data-theme="dark"]) .card.flip-card:hover {
+  transform: none;
+  box-shadow: 0 1px 2px rgba(76, 65, 50, 0.05), 0 12px 26px -18px rgba(76, 65, 50, 0.30);
+}
+/* 辉光开：换成品牌色辉光（已把强度从 0.28/0.30 下调到 0.18/0.20，开着也不晃眼） */
+html[data-glow="on"][data-theme="dark"] .card.flip-card:hover { box-shadow: var(--imm-shadow-glow); }
+html[data-glow="on"]:not([data-theme="dark"]) .card.flip-card:hover {
+  box-shadow: 0 1px 2px rgba(76, 65, 50, 0.05), 0 12px 26px -16px rgba(var(--green-rgb), 0.42);
+}
+html[data-theme="dark"] .card.flip-card.note-highlighted:hover {
+  box-shadow: 0 0 0 2px var(--favorite-highlight-ring, rgba(212, 168, 67, 0.28)),
+    var(--imm-shadow-2);
+}
+html[data-glow="on"][data-theme="dark"] .card.flip-card.note-highlighted:hover {
+  box-shadow: 0 0 0 2px var(--favorite-highlight-ring, rgba(212, 168, 67, 0.28)),
+    var(--imm-shadow-glow);
+}
+
+/* 4c. 卡面顶部"釉面"扫光：同一开关控制 —— 关辉光时卡片完全安静 */
+html .card.flip-card .flip-card-front::after { content: none; }
+html[data-glow="on"] .card.flip-card .flip-card-front::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 42%, var(--imm-sheen) 50%, transparent 58%);
+  background-size: 240% 100%;
+  background-position: 120% 0;
+  transition: background-position 0.7s var(--ease-out, ease);
+  opacity: 0.55;
+}
+html[data-glow="on"] .card.flip-card:hover .flip-card-front::after { background-position: -60% 0; }
+
+/* 4d. 卡片浏览器：遮罩加深 + 毛玻璃面板（深色为主，浅色轻量跟随） */
+html .card-viewer-backdrop { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+html[data-theme="dark"] .card-viewer-backdrop { background: rgba(4, 5, 7, 0.62); }
+html[data-theme="dark"] .card-viewer-panel {
+  background:
+    radial-gradient(600px 220px at 50% -60px, var(--imm-ambient), transparent 70%),
+    var(--panel);
+  border: 1px solid var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), var(--imm-shadow-2);
+}
+html[data-theme="dark"] .card-viewer-topbar {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 82%, transparent), transparent);
+  border-bottom-color: var(--imm-hairline);
+}
+
+/* ==========================================================================
+   §5  小测验（quiz）
+   --------------------------------------------------------------------------
+   目标：答题区像"舞台"—— 顶部一束聚光打在题面上，选项 hover 时
+   像踩上琴键一样亮起来。
+   ========================================================================== */
+
+/* 5a. 题卡：深色聚光卡 */
+html[data-theme="dark"] .quiz-question {
+  background:
+    radial-gradient(420px 160px at 28% -40px, var(--imm-ambient), transparent 75%),
+    var(--imm-card-grad);
+  border: 1px solid var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), var(--imm-shadow-1);
+}
+html .quiz-question {
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s var(--ease-out, ease);
+}
+html .quiz-question:hover { border-color: rgba(var(--green-rgb), 0.30); }
+
+/* 5b. 选项：琴键式 hover */
+html .quiz-question label { transition: background 0.15s ease, color 0.15s ease; }
+html[data-theme="dark"] .quiz-question label:hover .quiz-option-text {
+  color: #f2f4f6;
+}
+html[data-theme="dark"] .quiz-question label:hover {
+  background: rgba(var(--green-rgb), 0.10);
+  border-radius: 6px;
+}
+/* 对/错反馈加一圈细光边，深浅都可读 */
+html .quiz-question label.opt-correct { box-shadow: inset 0 0 0 1px rgba(var(--green-rgb), 0.45); }
+html .quiz-question label.opt-wrong { box-shadow: inset 0 0 0 1px rgba(225, 125, 132, 0.45); }
+
+/* 5c. 结果条：柔光反馈 */
+html .quiz-result.correct { box-shadow: inset 0 0 0 1px rgba(var(--green-rgb), 0.30); }
+html .quiz-result.wrong { box-shadow: inset 0 0 0 1px rgba(225, 125, 132, 0.30); }
+
+/* ==========================================================================
+   §6  知识图谱（kb-flow 流体图 / graph-wrap 导图）
+   --------------------------------------------------------------------------
+   目标：深空观测台 —— 底图是带星点感的深黑渐变，节点光晕更立体。
+   ========================================================================== */
+
+/* 6a. 导图底：浅色保留纸感微调，深色换成深空 */
+html .graph-wrap { transition: background 0.3s ease; }
+html[data-theme="dark"] .graph-wrap {
+  background:
+    radial-gradient(560px 300px at 16% 0%, rgba(var(--green-rgb), 0.10), transparent 60%),
+    radial-gradient(700px 420px at 88% 100%, rgba(255, 255, 255, 0.03), transparent 65%),
+    linear-gradient(180deg, #0d0f14, #0a0b0e);
+  border-color: var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen);
+}
+/* 浅色：把硬编码的暖绿光晕换成跟随品牌色的柔光（仅通用品牌，tju 浅色不碰） */
+html[data-brand="default"]:not([data-theme="dark"]) .graph-wrap {
+  background:
+    radial-gradient(560px 300px at 16% 0%, rgba(var(--green-rgb), 0.10), transparent 60%),
+    linear-gradient(180deg, #fdfcf9, #f8f6f0);
+}
+
+/* 6b. 图谱工具条 / 提示：玻璃化 */
+html[data-theme="dark"] .graph-controls {
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--imm-hairline);
+  box-shadow: var(--imm-shadow-1);
+}
+html[data-theme="dark"] .graph-pan-hint {
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border-color: var(--imm-hairline);
+}
+
+/* 6c. 流体图（kb-flow）：节点聚焦光晕半径加大，连线亮度曲线更柔和 */
+html[data-theme="dark"] .kb-flow-node.is-focus .kb-flow-dot {
+  filter: drop-shadow(0 0 10px rgba(var(--green-rgb), 0.9));
+}
+html[data-theme="dark"] .kb-flow-glow { opacity: 0.9; }
+html[data-theme="dark"] .kb-view-switch {
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--imm-hairline);
+}
+
+/* ==========================================================================
+   §7  学习概览（overview）
+   --------------------------------------------------------------------------
+   目标：入口像"驾驶舱仪表"—— hero 有纵深与光，面板是薄玻璃，
+   数字用衬线体放大存在感。
+   ========================================================================== */
+
+/* 7a. hero：深色换成有纵深的光幕（压过两条旧渐变） */
+html[data-theme="dark"] .overview-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(480px 200px at 12% -30%, rgba(var(--green-rgb), 0.16), transparent 70%),
+    radial-gradient(420px 220px at 96% 120%, rgba(255, 255, 255, 0.04), transparent 60%),
+    var(--imm-card-grad);
+  border: 1px solid var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), var(--imm-shadow-1);
+}
+html[data-theme="dark"] .overview-hero h3 {
+  text-shadow: 0 0 28px rgba(var(--green-rgb), 0.35);
+}
+
+/* 7b. 面板：薄玻璃卡，hover 轻亮 */
+html[data-theme="dark"] .overview-panel {
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), var(--imm-shadow-1);
+}
+html[data-theme="dark"] .overview-node-card {
+  background: var(--imm-card-grad);
+  border: 1px solid var(--imm-hairline);
+  transition: transform 0.22s var(--ease-out, ease), box-shadow 0.22s ease,
+    border-color 0.22s ease, background 0.22s ease;
+}
+html[data-theme="dark"] .overview-node-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--green-rgb), 0.40);
+  box-shadow: var(--imm-shadow-2);
+}
+/* 辉光开（同一个「卡片辉光」开关） */
+html[data-glow="on"][data-theme="dark"] .overview-node-card:hover { box-shadow: var(--imm-shadow-glow); }
+/* 浅色：node-card 的反馈走"描边光 + 极轻影"，**不做 translateY 抬升**
+   —— 2026 的设计综述把「卡片 hover 一律 translateY(-2px) + 阴影」列为最典型的
+      AI 生成味信号；纸面质感下，抬起反而像贴纸浮在屏上。 */
+html:not([data-theme="dark"]) .overview-node-card {
+  transition: box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+}
+
+/* 7c. 掌握度堆叠条：深色下给分段加细缝高光，读起来像仪表刻度 */
+html[data-theme="dark"] .mastery-stack { outline: 1px solid var(--imm-hairline); outline-offset: 1px; }
+
+/* ==========================================================================
+   §8  浅色 —— Neo-editorial（暖纸 / 发丝线 / 极轻影 / 排版分层）
+   --------------------------------------------------------------------------
+   调研口径（2026-10 Wire / TypeUI / Vola 综述，IBM Think、Stripe、Bloomberg 在走的路）：
+     · 暖中性底（stone / sand / 米白）代替纯白 —— 纯白在长文阅读下刺眼且显廉价
+     · 用低透明度发丝描边**代替**重阴影：0.10 不到的线就能分出层级
+     · 阴影只留极轻一层（0 2px 8px rgba(0,0,0,.05)），不做"浮空球"
+     · 层级靠字号 / 字重 / 字族（衬线标题 + 无衬线正文），不靠涂颜色
+     · 8pt 间距栅格：4 / 8 / 12 / 16 / 24 / 32
+     · 单一强调色，只用在"该被看见的地方"
+   ========================================================================== */
+
+/* 8a. 纸感底：面板给一层几乎看不见的暖渐变（上暖白 → 下微灰），像纸有厚度 */
+html:not([data-theme="dark"]) {
+  --imm-line-soft: rgba(45, 42, 38, 0.09);
+  --imm-paper: linear-gradient(180deg, #fffefc 0%, #fdfbf7 62%, #faf7f1 100%);
+  --imm-shadow-soft: 0 1px 2px rgba(76, 65, 50, 0.04), 0 6px 18px -12px rgba(76, 65, 50, 0.14);
+}
+html:not([data-theme="dark"]) body {
+  background:
+    radial-gradient(1100px 420px at 50% -140px, rgba(255, 255, 255, 0.85), transparent 70%),
+    var(--background);
+}
+
+/* 8b. 文档阅读：纸面 + 顶部微光，正文区保持最亮最干净 */
+html:not([data-theme="dark"]) #ko-kd-overlay {
+  background:
+    radial-gradient(1000px 380px at 50% -140px, var(--imm-ambient), transparent 72%),
+    var(--panel);
+}
+html:not([data-theme="dark"]) .ko-kd-bar {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(12px) saturate(1.05);
+  -webkit-backdrop-filter: blur(12px) saturate(1.05);
+  border-bottom: 1px solid var(--imm-line-soft);
+}
+/* 浅色排版分层：标题衬线 + 首字母微距，段距走 8pt 栅格 */
+html:not([data-theme="dark"]) .ko-kd-md p { margin: 10px 0; }
+html:not([data-theme="dark"]) .ko-kd-md h1 {
+  font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+  border-bottom: 1px solid var(--imm-line-soft);
+}
+html:not([data-theme="dark"]) .ko-kd-md h2 { margin-top: 40px; border-bottom-color: var(--imm-line-soft); }
+html:not([data-theme="dark"]) .ko-kd-md blockquote {
+  border-left-color: rgba(var(--green-rgb), 0.5);
+  background: linear-gradient(90deg, rgba(var(--green-rgb), 0.05), transparent 80%);
+}
+
+/* 8c. 卡片：纸卡 + 发丝边 + 极轻影（不做 translateY 抬升，见 §9 的 hover 收敛说明） */
+html:not([data-theme="dark"]) .card.flip-card .flip-card-face {
+  background: var(--imm-paper);
+  border: 1px solid var(--imm-line-soft);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), var(--imm-shadow-soft);
+}
+html:not([data-theme="dark"]) .card.flip-card:hover .flip-card-face {
+  border-color: rgba(var(--green-rgb), 0.32);
+}
+
+/* 8d. 测验：题面用纸卡，选项 hover 只是一层极淡的底色渐变 */
+html:not([data-theme="dark"]) .quiz-question {
+  background:
+    radial-gradient(420px 160px at 28% -40px, rgba(var(--green-rgb), 0.05), transparent 75%),
+    var(--imm-paper);
+  border: 1px solid var(--imm-line-soft);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), var(--imm-shadow-soft);
+}
+html:not([data-theme="dark"]) .quiz-question label:hover {
+  background: rgba(var(--green-rgb), 0.06);
+  border-radius: 6px;
+}
+
+/* 8e. 概览：hero 光晕更柔、面板纸感、卡片浮起只靠阴影不靠位移 */
+html:not([data-theme="dark"]) .overview-hero {
+  background:
+    radial-gradient(480px 200px at 12% -30%, rgba(var(--green-rgb), 0.10), transparent 70%),
+    linear-gradient(135deg, var(--green-soft), var(--background));
+  border-color: var(--imm-line-soft);
+}
+html:not([data-theme="dark"]) .overview-panel,
+html:not([data-theme="dark"]) .overview-node-card {
+  border-color: var(--imm-line-soft);
+  box-shadow: var(--imm-shadow-soft);
+}
+html:not([data-theme="dark"]) .overview-node-card:hover {
+  border-color: rgba(var(--green-rgb), 0.35);
+  box-shadow: 0 1px 2px rgba(76, 65, 50, 0.05), 0 14px 30px -18px rgba(76, 65, 50, 0.28);
+}
+html[data-glow="on"]:not([data-theme="dark"]) .overview-node-card:hover {
+  box-shadow: 0 1px 2px rgba(76, 65, 50, 0.05), 0 14px 30px -16px rgba(var(--green-rgb), 0.38);
+}
+
+/* 8f. 图谱：纸面网格底（保留品牌色柔光，不用重描边） */
+html:not([data-theme="dark"]) .graph-wrap { border-color: var(--imm-line-soft); }
+
+/* ==========================================================================
+   §8b 布局节奏 —— 8pt 栅格 + 分区呼吸
+   --------------------------------------------------------------------------
+   不动任何功能尺寸（栏宽 / 栅格列数 / 可拖拽手柄），只统一"块与块之间"的呼吸：
+   概览 hero 内边距 16 → 20、面板 gap 13 → 16、节点列表 gap 10 → 12、阅读 h2 上距放大。
+   ========================================================================== */
+html .overview-hero { padding: 20px 22px; }
+html .overview-panel { padding: 18px; gap: 16px; }
+html .overview-dashboard { gap: 16px; }
+html .overview-node-list { gap: 12px; }
+html .overview-section-heading h3 { letter-spacing: 0.01em; }
+html .overview-hero h3 { letter-spacing: -0.01em; }
+/* 阅读：小节之间留"翻页"的空白，标题上距 > 下距（视觉上才归属下一段） */
+html .ko-kd-md h2 { margin-top: 40px; }
+html .ko-kd-md h3 { margin-top: 30px; }
+
+/* ==========================================================================
+   §10 整理助手与笔记（kb-* 面板）深色统一
+   --------------------------------------------------------------------------
+   诊断：这套界面在深色下走的是另一套**暖棕黑**（#201d18 / #2b2620 / #16130f /
+   #3a352c / #31402c / #2a2620），与全站新的冷调高级黑不是一族 —— 两个深色界面
+   并排时像两个产品。这里统一到同一套令牌：
+     面板 --panel(#121419) → 次级面 --imm-raise(#171a20) → 描边 --imm-hairline
+     笔记编辑/预览再暗一档(#0e1014)，因为它是"读与写"的地方，要最静。
+   另外补掉三处漏网的白底输入/结果框，以及来源图谱 SVG 的硬编码浅色卡片。
+   ========================================================================== */
+
+/* 10a. 面板外壳 */
+html[data-theme="dark"] .kb-dock {
+  background: var(--panel);
+  box-shadow: var(--imm-shadow-2), inset 0 1px 0 var(--imm-sheen);
+}
+html[data-theme="dark"] .kb-dock-head {
+  background: linear-gradient(180deg, var(--imm-raise), var(--panel));
+  border-bottom-color: var(--imm-hairline);
+}
+html[data-theme="dark"] .kb-head-sep { background: var(--imm-hairline); }
+html[data-theme="dark"] .kb-head-agent select,
+html[data-theme="dark"] .kb-head-agent .head-button,
+html[data-theme="dark"] .mod-button {
+  background: var(--imm-raise);
+  border-color: var(--imm-hairline);
+  color: var(--ink);
+}
+html[data-theme="dark"] .kb-head-agent .head-button:hover,
+html[data-theme="dark"] .mod-button:hover {
+  border-color: rgba(var(--green-rgb), 0.45);
+  background: rgba(var(--green-rgb), 0.12);
+}
+
+/* 10b. 页签：激活项改为"品牌色软底 + 品牌色字"，不再用绿褐色块 */
+html[data-theme="dark"] .kb-tab.is-active {
+  background: rgba(var(--green-rgb), 0.14);
+  color: var(--green-dark);
+}
+html[data-theme="dark"] .kb-mode-tabs { background: rgba(255, 255, 255, 0.045); }
+html[data-theme="dark"] .kb-mode-tab.is-active {
+  background: var(--imm-raise);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 var(--imm-sheen), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+html[data-theme="dark"] .kb-back { background: rgba(var(--green-rgb), 0.12); }
+
+/* 10c. 笔记：读写区再暗一档，标题/meta 走统一令牌 */
+html[data-theme="dark"] .kb-note-head { border-bottom-color: var(--imm-hairline); }
+html[data-theme="dark"] .kb-note-meta { background: var(--imm-raise); color: var(--muted); }
+html[data-theme="dark"] .kb-markdown-editor,
+html[data-theme="dark"] .kb-preview-area {
+  background: #0e1014;
+  border-color: var(--imm-hairline);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+html[data-theme="dark"] .kb-preview-area code { background: rgba(255, 255, 255, 0.06); }
+
+/* 10d. 漏网的白底：标签输入 / 白名单输入 / 卡片与测验结果框 */
+html[data-theme="dark"] .kb-tags-input,
+html[data-theme="dark"] .kb-wl-input,
+html[data-theme="dark"] .kb-card-result,
+html[data-theme="dark"] .kb-quiz-result {
+  background: var(--panel);
+  border-color: var(--imm-hairline);
+  color: var(--ink);
+}
+html[data-theme="dark"] .kb-card-item {
+  background: var(--panel);
+  border-color: var(--imm-hairline);
+}
+
+/* 10e. 来源图谱（SVG）：卡片原本硬编码 #ece7dc、网格点 #d9d1c2，
+        深色下整块发白。CSS 的 fill 能盖住 SVG 的 presentation attribute，
+        直接把这一族换成深色面 + 令牌文字色（品牌色元素保持跟随）。 */
+html[data-theme="dark"] .kb-src-card { fill: var(--panel); stroke: rgba(255, 255, 255, 0.14); }
+html[data-theme="dark"] .kb-src-bar { fill: rgba(var(--green-rgb), 0.6); }
+html[data-theme="dark"] .kb-src-title { fill: var(--ink); }
+html[data-theme="dark"] .kb-src-meta,
+html[data-theme="dark"] .kb-src-side,
+html[data-theme="dark"] .kb-src-col-title,
+html[data-theme="dark"] .kb-src-hint { fill: var(--muted); }
+/* 便签卡：浅紫 → 深紫面（保留紫调身份，只是把它放進夜里） */
+html[data-theme="dark"] .kb-src-note-card { fill: #1b1524; stroke: rgba(168, 135, 207, 0.42); }
+html[data-theme="dark"] .kb-src-note-text { fill: #c8bce0; }
+html[data-theme="dark"] .kb-src-note-dot { fill: #b79ae0; }
+/* 红标/空态：浅红底 → 深红玻璃 */
+html[data-theme="dark"] .kb-src-badge-bg { fill: rgba(199, 92, 92, 0.18); stroke: rgba(225, 125, 132, 0.55); }
+html[data-theme="dark"] .kb-src-badge-text { fill: #f0a0a0; }
+html[data-theme="dark"] .kb-src-empty-box { stroke: rgba(225, 125, 132, 0.5); }
+html[data-theme="dark"] .kb-src-empty-text { fill: #f0a0a0; }
+/* 网格点色在 JS 里写死（pattern 内部 circle 拿不到 CSS 钩子），整体压暗即可 */
+html[data-theme="dark"] .kb-src-canvas { opacity: 0.30; }
+
+/* 10f. 暗黄残留清理：学习闭环条 / 首用卡 / 折叠条 / 记忆徽章 / 标签 / AI 段
+        这一批深色覆盖写的是 #26221c / #2b2620 / #3a352c 一族暖褐，
+        在高级黑上是"脏黄块"。全部并入冷调令牌。 */
+html[data-theme="dark"] .kb-stepper {
+  background: var(--imm-raise);
+  border-color: var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen);
+}
+html[data-theme="dark"] .kb-firstuse {
+  background: var(--imm-card-grad);
+  border-color: var(--imm-hairline);
+  box-shadow: inset 0 1px 0 var(--imm-sheen);
+}
+/* demo 列表原文把文字色写成了 var(--line)（线色当字色，读不清），顺手修正 */
+html[data-theme="dark"] .kb-firstuse-demo li {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--imm-hairline);
+  color: var(--ink);
+}
+html[data-theme="dark"] .kb-fold {
+  background: var(--imm-raise);
+  border-color: var(--imm-hairline);
+}
+html[data-theme="dark"] .kb-memory-badge {
+  background: rgba(var(--green-rgb), 0.12);
+  border-color: rgba(var(--green-rgb), 0.30);
+  color: var(--green-dark);
+}
+html[data-theme="dark"] .kb-tag-chip {
+  background: var(--imm-raise);
+  border-color: var(--imm-hairline);
+  color: var(--ink);
+}
+html[data-theme="dark"] .kb-ai-seg { background: var(--imm-raise); border-color: var(--imm-hairline); }
+html[data-theme="dark"] .kb-ai-seg .mini-button:hover {
+  background: rgba(var(--green-rgb), 0.14);
+  color: var(--green-dark);
+}
+/* 节点条主操作（生成知识卡片等 primary）：tju 在 styles.css 12288 有专属深色定义，
+   default 品牌漏了 → 深色下还是浅色样式（白底黑字，在高级黑上巨亮）。这里补齐。 */
+html[data-theme="dark"]:not([data-brand="tju"]) .kb-agent-nodebar .mini-button.primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: #0e1014;
+}
+html[data-theme="dark"]:not([data-brand="tju"]) .kb-agent-nodebar .mini-button.primary:hover {
+  background: var(--green-dark);
+  border-color: var(--green-dark);
+}
+
+/* 10g. 整理助手对话区：气泡 / 输入框 / 收敛条按钮
+        诊断（用户截图）：AI 气泡是暖褐 #2b2620、用户气泡是暗绿 #31402c、
+        输入框是暖黑 #16130f —— 三块颜色各说各话，在高级黑上最显脏的就是这里。
+        统一口径：
+          AI 气泡  = 冷调抬升面 + 品牌色左饰条（与全站 assistant 气泡同一语言）
+          用户气泡 = 品牌色玻璃（半透明填充，不再是实心色块）
+          输入框   = #0e1014（与笔记编辑区同档，读写区最暗）
+        tju 品牌在这三处都有自己的海棠色设计（styles.css 11261 等，特异性更高），
+        本层不覆盖，自动保留。 */
+html[data-theme="dark"] .kb-agent-body {
+  background: linear-gradient(180deg, #171a20, #121419);
+  border-color: var(--imm-hairline);
+  border-left: 3px solid rgba(var(--green-rgb), 0.55);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 var(--imm-sheen);
+}
+html[data-theme="dark"] .kb-agent-msg.user-msg .kb-agent-body {
+  background: rgba(var(--green-rgb), 0.14);
+  border-color: rgba(var(--green-rgb), 0.22);
+  color: var(--ink);
+}
+html[data-theme="dark"] .kb-agent-composer textarea {
+  background: #0e1014;
+  border-color: var(--imm-hairline);
+  color: var(--ink);
+}
+/* 收敛条：兜底保证按钮是深色底（禁用态别再叠加 saturate 变得灰白） */
+html[data-theme="dark"] .kb-converge-bar .mini-button {
+  background: var(--imm-raise);
+  border-color: var(--imm-hairline);
+  color: var(--ink);
+}
+html[data-theme="dark"] .kb-converge-bar .mini-button:disabled {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  filter: none;
+  opacity: 0.9;
+}
+html[data-theme="dark"] .kb-exec-hint {
+  background: rgba(79, 140, 255, 0.08);
+  border-color: rgba(79, 140, 255, 0.4);
+  color: var(--ink);
+}
+
+/* ==========================================================================
+   §9  动效纪律：reduced-motion / 触屏 全部退场
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  html .card.flip-card,
+  html .card.flip-card .flip-card-front::after,
+  html .quiz-question,
+  html .overview-node-card,
+  html .ko-kd-top {
+    transition: none !important;
+    animation: none !important;
+  }
+  html .card.flip-card:hover,
+  html .overview-node-card:hover,
+  html .ko-kd-top:hover { transform: none; }
+}
+@media (hover: none) {
+  html .card.flip-card .flip-card-front::after { display: none; }
+}
+
+/* —— color-mix 兜底：极旧内核不支持时退回纯色，不能变成透明消失 —— */
+@supports not (background: color-mix(in srgb, #000 50%, #fff)) {
+  html .ko-kd-bar { background: var(--panel); }
+  html .ko-kd-top { background: var(--panel); }
+  html[data-theme="dark"] .overview-panel { background: var(--panel); }
+  html[data-theme="dark"] .ko-kd-ask { background: var(--panel); }
+  html[data-theme="dark"] .graph-controls { background: var(--panel); }
+  html[data-theme="dark"] .kb-view-switch { background: var(--panel); }
+}

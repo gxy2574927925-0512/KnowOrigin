@@ -1,0 +1,279 @@
+/* ============================================================================
+   styles-polish.css —— 质感与交互增强层 v1
+   ----------------------------------------------------------------------------
+   回答两个问题：UI 能不能更高级？交互能不能更舒服？
+
+   先说诊断（量化自 styles.css 14011 行）：
+     1. 圆角：20 种离散值（2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/20/99/999）
+        → 没有尺度和声，每个控件自己发明一个圆角，是"不够精致"的头号原因
+     2. 阴影：只有 4 处引用 --shadow，其余全是硬编码一次性值
+        → 没有层级语言，面板/卡片/浮层之间拉不开空间关系
+     3. 缓动：127 处 transition，但 cubic-bezier 只出现 6 次，其余全是 ease/linear
+        → 动效生硬，缺少"减速到场"的质感
+     4. 焦点环：只有 10 处显式 outline → 键盘可达性不完整
+
+   本层的修复策略（重要）：
+     ★ 所有规则用 :where(...) 包裹 → 优先级恒为 0，只"填空"不"覆盖"。
+       任何已有更具体的规则永远赢，因此本层**在结构上不可能破坏现有视觉**。
+     ★ 只新增令牌，不重定义既有令牌（--ink/--green/--line 等一律不动）。
+     ★ 尊重 prefers-reduced-motion / prefers-contrast / hover:none 触摸设备。
+
+   加载位置：必须在所有样式表之后（含 katex），靠顺序做兜底填充。
+   ============================================================================ */
+
+/* ==========================================================================
+   §1  新增令牌：尺度 / 层级 / 节奏
+   ========================================================================== */
+:root {
+  /* 缓动：统一"减速到场"的曲线 */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --ease-spring: cubic-bezier(.34, 1.42, .64, 1);
+  /* 时长阶梯 */
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 340ms;
+
+  /* 圆角尺度：把 20 种散值收敛成 6 级 + 药丸 */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 11px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --r-pill: 999px;
+
+  /* 阴影层级：1=贴地 2=抬起 3=浮起 4=模态 */
+  --shadow-rgb: 76, 65, 50;
+  --shadow-1: 0 1px 2px rgba(var(--shadow-rgb), .06), 0 1px 1px rgba(var(--shadow-rgb), .04);
+  --shadow-2: 0 2px 4px rgba(var(--shadow-rgb), .05), 0 8px 20px -10px rgba(var(--shadow-rgb), .14);
+  --shadow-3: 0 2px 6px rgba(var(--shadow-rgb), .06), 0 18px 44px -18px rgba(var(--shadow-rgb), .22);
+  --shadow-4: 0 4px 10px rgba(var(--shadow-rgb), .08), 0 32px 72px -24px rgba(var(--shadow-rgb), .30);
+}
+
+/* Agent 冷蓝：阴影换成冷灰蓝，别让暖棕影压在冷蓝界面上 */
+html[data-ui="agent"]:where(:not([data-theme="dark"])) {
+  --shadow-rgb: 24, 35, 54;
+}
+
+/* 深色：纯黑投影 + 1px 内描边（深色下只靠阴影拉不开层次） */
+html[data-theme="dark"] {
+  --shadow-rgb: 0, 0, 0;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .40), 0 0 0 1px rgba(255, 255, 255, .05);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 10px 28px -12px rgba(0, 0, 0, .58), 0 0 0 1px rgba(255, 255, 255, .06);
+  --shadow-3: 0 4px 12px rgba(0, 0, 0, .50), 0 22px 50px -18px rgba(0, 0, 0, .68), 0 0 0 1px rgba(255, 255, 255, .07);
+  --shadow-4: 0 8px 20px rgba(0, 0, 0, .55), 0 38px 80px -24px rgba(0, 0, 0, .78), 0 0 0 1px rgba(255, 255, 255, .08);
+  /* 深色下白字默认过粗，开抗锯齿更耐看；浅色下不动（中文细体会发虚） */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==========================================================================
+   §2  键盘可达性：统一焦点环（全站兜底，已有更具体的规则仍优先）
+   ========================================================================== */
+:where(a[href], button, input, select, textarea, summary, label,
+       [role="button"], [role="tab"], [role="menuitem"], [role="option"],
+       [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 3px solid rgba(var(--green-rgb, 107, 158, 92), .30);
+  outline-offset: 2px;
+  transition: outline-color var(--dur-1) var(--ease-out);
+}
+
+/* 深色下焦点环要更亮才看得见 */
+html[data-theme="dark"] :where(a[href], button, input, select, textarea, summary,
+       [role="button"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline-color: rgba(var(--green-rgb, 125, 162, 255), .55);
+}
+
+/* ==========================================================================
+   §3  交互节奏：给"没有过渡"的控件补一套统一过渡
+       （已有 transition 简写的规则优先级更高，不会被改坏）
+   ========================================================================== */
+:where(button, input, select, textarea, summary, a,
+       [role="button"], [role="tab"], [role="menuitem"]) {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: var(--dur-1);
+  transition-timing-function: var(--ease-out);
+}
+
+/* 按压回弹：点下去"有实体感"，这是最便宜的舒服度提升。
+   ⚠️ 必须排除「定位写在 transform 属性上」的元素 —— SVG 图谱节点
+   （.graph-node）与来源视图节点（.kb-src-node）都是
+   <g role="button" transform="translate(x y)">：
+   CSS 的 transform 会**盖掉**表现属性，一按下去节点就丢掉自己的 translate、
+   带着 §3 那条 transition 飘到画布左上角；抬手时鼠标已经不在节点上了，
+   浏览器把 click 派发到公共祖先 <svg> 上（target 不是节点）——
+   表现就是「点节点没反应 / 护照卡片不出现」+「一按节点就飘走」。
+   用 [transform] 精确排除这一族：它只命中"定位在属性里"的元素，
+   普通 HTML 按钮（含 .evidence-chip / .overview-node-card 这类 div 按钮）
+   一个都不受影响。 */
+button:where(:not([disabled])):active,
+[role="button"]:where(:not([disabled])):not([transform]):active,
+summary:active {
+  transform: translateY(1px) scale(.994);
+  transition-duration: 60ms;
+}
+
+/* ==========================================================================
+   §4  排版细节：让中文界面"呼吸"起来
+   ========================================================================== */
+/* 标题：避免末行单字成行 */
+:where(h1, h2, h3, h4, h5, h6, .panel-title, .section-title, .studio-heading) {
+  text-wrap: balance;
+}
+
+/* 正文：避免孤字末行（pretty 只在支持的浏览器生效，不支持则忽略） */
+:where(p, li, dd, blockquote) {
+  text-wrap: pretty;
+}
+
+/* 数字等宽：统计/计数/时间戳不再左右跳动，是最容易被感知的"精致" */
+:where(table, td, th, time, .count, .badge, .stats, .metric, .num, .step-dot) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 选中文本：用品牌色淡染，替换浏览器默认的高饱和蓝 */
+::selection {
+  background: rgba(var(--green-rgb, 107, 158, 92), .20);
+  color: var(--ink, #2d2a26);
+}
+html[data-theme="dark"] ::selection {
+  background: rgba(var(--green-rgb, 125, 162, 255), .32);
+  color: #fff;
+}
+
+/* ==========================================================================
+   §5  滚动体验：消除三类"不舒服"
+   ========================================================================== */
+/* 5.1 预留滚动条槽位 → 内容出现滚动条时不再横向抖动 */
+:where(html) {
+  scrollbar-gutter: stable;
+}
+
+/* 5.2 滚动到底不带动父容器（滚动穿透） */
+:where(.sidebar, .conversation, .kp-scroll, .feature-nav-menu, .studio-panel,
+       .kb-passport-host, .modal-body, .sources-list) {
+  overscroll-behavior: contain;
+}
+
+/* 5.3 细滚动条（⚠️ 铁律：不要在这些元素上用 scrollbar-width/scrollbar-color，
+       否则 Chromium 会整体忽略 ::-webkit-scrollbar-* 伪元素） */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted, #777168) 32%, transparent);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: var(--r-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted, #777168) 56%, transparent);
+  background-clip: content-box;
+}
+/* 不支持 color-mix 的浏览器退回实色 */
+@supports not (background: color-mix(in srgb, red 50%, blue)) {
+  ::-webkit-scrollbar-thumb { background: rgba(120, 110, 96, .32); background-clip: content-box; }
+}
+
+/* ==========================================================================
+   §6  浮层层级：菜单/下拉/气泡用 shadow-3，和贴地面板拉开距离
+   ========================================================================== */
+:where(.feature-nav-menu, .dropdown-menu, .popover, .context-menu, .tooltip,
+       .autocomplete-list, .mention-list) {
+  box-shadow: var(--shadow-3);
+  border-radius: var(--r-lg);
+}
+
+/* 浮层出现用"减速到场"而非线性淡入 */
+:where(.feature-nav-menu, .dropdown-menu, .popover) {
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out),
+    visibility var(--dur-2) var(--ease-out);
+}
+
+/* ==========================================================================
+   §7  触摸设备：hover 会在点完后"粘住"，必须关掉
+   ========================================================================== */
+@media (hover: none) {
+  :where(button, a, .card, .chip, .pill):hover {
+    transform: none;
+    box-shadow: none;
+  }
+  /* 触摸下取消 300ms 点击延迟带来的高亮 */
+  :where(button, a, [role="button"]) { -webkit-tap-highlight-color: transparent; }
+}
+
+/* ==========================================================================
+   §8  无障碍偏好
+   ========================================================================== */
+/* 8.1 前庭敏感用户：关掉位移类动效，只留透明度 */
+@media (prefers-reduced-motion: reduce) {
+  :where(*) {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* 同样要放过「定位写在 transform 属性上」的 SVG 节点：transform: none
+     一样会顶掉它们的 translate，节点会被扔到画布左上角（见 §3 的说明）。 */
+  button:where(:not([disabled])):active,
+  [role="button"]:where(:not([disabled])):not([transform]):active,
+  summary:active { transform: none; }
+}
+
+/* 8.2 高对比度偏好：把浅边框加实、去掉半透明糊层 */
+@media (prefers-contrast: more) {
+  :where(.card, .panel, .chip, .pill, button, input, textarea, select) {
+    border-color: var(--ink, #2d2a26);
+  }
+  :where(.assistant-message > div, .user-message > div) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* 8.3 强制色彩（Windows 高对比度）下保留可辨识边框 */
+@media (forced-colors: active) {
+  :where(button, .card, .panel, .chip) {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* ==========================================================================
+   §9  唯一一处"刻意覆盖"的既有令牌：把 --shadow 从单段升级为双段
+   ----------------------------------------------------------------------------
+   原值 `0 12px 34px rgba(76,65,50,.08)` 只有一层远距柔光，缺少近距接触影，
+   所以看起来"飘着"而不是"放在纸上"——这是旧式阴影的典型特征。
+   现代设计系统统一用「近距锐影 + 远距柔光」双段式：
+     近距 0 1px 2px  → 负责"贴住"的接触感
+     远距 0 8px 24px → 负责"抬起"的空间感（负 spread 让边缘不外扩发灰）
+   影响面：styles.css 里 4 处 `box-shadow: var(--shadow)`，全部受益，无副作用。
+
+   ⚠️ 但有两个主题**刻意**把阴影关掉了，本层必须绕开，不能"好心办坏事"：
+       · agent-layout.css:46    html[data-ui="agent"][data-theme="dark"]    → none
+       · styles.css:12722       html[data-ui="academic"][data-theme="dark"] → none
+     这两条选择器优先级是 (0,2,1)，而下面用的最高只有 (0,1,1)，
+     因此它们的 none 自动保全 —— 这不是巧合，是刻意的层级设计。
+   ========================================================================== */
+:root,
+html[data-ui="agent"]:where(:not([data-theme="dark"])) {
+  --shadow:
+    0 1px 2px rgba(var(--shadow-rgb), .06),
+    0 8px 24px -12px rgba(var(--shadow-rgb), .18);
+}
+html[data-theme="dark"] {
+  --shadow:
+    0 1px 2px rgba(0, 0, 0, .45),
+    0 10px 30px -12px rgba(0, 0, 0, .62),
+    0 0 0 1px rgba(255, 255, 255, .06);
+}
+
+/* ==========================================================================
+   §10  给未来的控件准备：圆角尺度只在这里定义一次
+   ----------------------------------------------------------------------------
+   说明：现存 20 种离散圆角值是在 styles.css 里逐个硬编码的，本层不批量替换
+   （风险 > 收益，且 1~2px 的差异肉眼不可辨）。这里只把尺度定下来，新写的
+   组件直接引用 --r-sm/md/lg 即可，存量收敛建议随每次改版顺手替换。
+   ========================================================================== */

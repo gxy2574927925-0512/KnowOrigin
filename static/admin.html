@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>知源管理后台</title>
+  <link rel="stylesheet" href="/static/admin.css?v=20260930-font-scale-v1">
+  <script defer src="/static/admin.js?v=20260912-term-project"></script>
+  <!-- AI 用量排行：追加一个表格区块；删掉这一行即完全回退 -->
+  <script defer src="/static/admin-usage.js?v=20260930-font-scale-v1"></script>
+</head>
+<body>
+  <main class="admin-shell">
+    <section id="login-view" class="login-panel hidden" aria-labelledby="login-title">
+      <form id="admin-login-form" class="login-form">
+        <p class="eyebrow">KnowOrigin Admin</p>
+        <h1 id="login-title">管理后台</h1>
+        <label>管理员密码
+          <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p id="login-feedback" class="feedback" role="status" aria-live="polite"></p>
+        <button class="primary-button" type="submit">进入后台</button>
+      </form>
+    </section>
+
+    <section id="dashboard-view" class="dashboard hidden" aria-labelledby="dashboard-title">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">KnowOrigin Admin</p>
+          <h1 id="dashboard-title">用户登录监测</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="generated-at" class="muted"></span>
+          <button id="refresh-button" class="secondary-button" type="button">刷新</button>
+          <button id="logout-button" class="text-button" type="button">退出</button>
+        </div>
+      </header>
+
+      <section id="summary-grid" class="summary-grid" aria-label="统计概览"></section>
+
+      <section class="table-section" aria-labelledby="users-title">
+        <div class="section-heading">
+          <h2 id="users-title">用户</h2>
+          <span id="users-count" class="muted"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>用户</th>
+                <th>注册时间</th>
+                <th>最近登录</th>
+                <th>最近活跃</th>
+                <th>有效登录</th>
+                <th>项目</th>
+                <th>资料</th>
+                <th>失败登录</th>
+              </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="table-section" aria-labelledby="events-title">
+        <div class="section-heading">
+          <h2 id="events-title">最近登录事件</h2>
+          <span id="events-count" class="muted"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>邮箱</th>
+                <th>类型</th>
+                <th>结果</th>
+                <th>IP</th>
+                <th>设备</th>
+              </tr>
+            </thead>
+            <tbody id="events-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

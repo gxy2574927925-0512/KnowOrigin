@@ -1,0 +1,172 @@
+﻿<!doctype html>
+<!--
+  语义护照 · 视觉预览页（开发用）
+
+  存在的理由：真实界面的图谱在登录态内，自动化探针跑不到可见层，
+  于是「断言全过但样式没验过」。这里用**真实的 styles.css + styles-passport.css
+  + 真实的 kb-passport-ui.js** 渲染一遍，样式若写错，截图里立刻看得见。
+  交互断言（单击节点、折叠、拖动把手、Esc）也都跑在这里。
+
+  跑法：node tools/_probe_kb_passport.js / node tools/_shot_kb_passport.js
+-->
+<html lang="zh-CN" data-theme="light" data-brand="tju" data-ui="agent">
+<head>
+  <meta charset="utf-8">
+  <title>语义护照 · 视觉预览</title>
+  <link rel="stylesheet" href="/static/styles.css?v=20261006-passport-v8">
+  <link rel="stylesheet" href="/static/styles-passport.css?v=20261006-passport-v8">
+  <link rel="stylesheet" href="/static/vendor/katex.min.css">
+  <style>
+    /* 预览页自己的骨架，尽量贴近真实图谱页的三列布局 */
+    body { margin: 0; background: var(--bg, #fffdf8); font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .framework-shell { padding: 18px 20px; gap: 14px; align-items: stretch; min-height: 100vh; box-sizing: border-box; }
+    .framework-sidebar {
+      border: 1px solid var(--line, #ded7ca); border-left: 3px solid var(--green, #6b9e5c);
+      border-radius: 12px; padding: 12px 14px; background: var(--panel, #faf5ea);
+    }
+    .framework-sidebar h4 { margin: 0 0 10px; font-size: 14px; }
+    .framework-sidebar-header { display: flex; align-items: center; gap: 8px; }
+    .framework-sidebar .tree-row {
+      display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px;
+      font-size: 12.5px; color: var(--muted, #777168);
+    }
+    .framework-sidebar .tree-row.is-sel { background: var(--green-soft, #eef4ea); color: var(--green-dark, #4f7d43); font-weight: 600; }
+    .framework-view {
+      display: flex; flex-direction: column; gap: 10px; min-height: 0;
+      border: 1px solid var(--line, #ded7ca); border-radius: 12px; padding: 12px;
+      background:
+        radial-gradient(circle at 1px 1px, var(--line, #ded7ca) 1px, transparent 1.3px) 0 0 / 26px 26px,
+        var(--panel, #faf5ea);
+    }
+    .graph-wrap { flex: 1; min-height: 0; }
+    .graph-node { cursor: pointer; }
+    .legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--muted, #777168); }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <div class="framework-shell">
+    <aside class="framework-sidebar framework-sidebar-left" aria-label="知识框架目录">
+      <button type="button" class="kb-side-rail" data-kb-expand="left" aria-label="展开框架目录" title="展开框架目录">
+        <span class="kb-side-rail-glyph expand" aria-hidden="true"></span><span class="kb-side-rail-label">框架目录</span>
+      </button>
+      <div class="framework-sidebar-header">
+        <h4>框架目录</h4>
+        <span class="sidebar-count">6 项</span>
+        <button type="button" class="framework-sidebar-collapse" data-kb-collapse-left aria-label="收起框架目录" title="收起目录">‹</button>
+      </div>
+      <div class="tree-row">光电子技术</div>
+      <div class="tree-row is-sel">激光器设计与固合因素</div>
+      <div class="tree-row">激光器大器设计考虑</div>
+      <div class="tree-row">谐波腔工程思健</div>
+      <div class="tree-row">调Q工作原理与速率方程</div>
+    </aside>
+
+    <section class="framework-view">
+      <button type="button" class="kb-grip kb-grip-left" data-kb-grip="left" aria-label="拖动调整目录栏宽度" title="拖动调整宽度"></button>
+      <div class="graph-wrap" id="graph-wrap"></div>
+      <div class="legend">
+        <span><i style="background:#c5cfde"></i>未探索</span>
+        <span><i style="background:#6b8de0"></i>待确认/学习中</span>
+        <span><i style="background:#3457e8"></i>已掌握</span>
+        <span><i style="background:#c75c5c"></i>来源不足</span>
+      </div>
+      <div class="kb-mechanism" data-kb-mechanism hidden></div>
+    </section>
+
+    <aside class="kb-passport-host" id="passport" aria-label="语义护照" hidden></aside>
+  </div>
+
+  <script src="/static/vendor/katex.min.js"></script>
+  <script>
+    // —— 被测组件依赖的全局最小 stub ——
+    var state = { currentProjectId: "preview", nodes: [] };
+    window.state = state;
+    function api(url, opts) {
+      if (/nodes\/.*\/doc/.test(url)) {
+        // 探针切这个开关来验空态：真实页面靠接口返回 doc:null，
+        // 这里没有后端，只能由页面内的 stub 自己决定
+        if (window.__PASSPORT_EMPTY__) return Promise.resolve({ doc: null });
+        return Promise.resolve({ doc: window.__PASSPORT_DOC__ });
+      }
+      return Promise.resolve({});
+    }
+    window.api = api;
+  </script>
+  <script src="/static/kb-passport-ui.js?v=20261006-passport-v8"></script>
+  <script>
+    // 组件会调 app.js 里的这几个全局函数；预览页给出等价 stub，
+    // 这样「点笔记开全屏 dock」这类交互才能被自动化验到。
+    window.kbOpenNode = function (nodeId) {
+      var dock = document.querySelector("[data-kb-dock]");
+      if (!dock) {
+        dock = document.createElement("div");
+        dock.setAttribute("data-kb-dock", "");
+        dock.setAttribute("role", "dialog");
+        dock.style.cssText = "position:fixed;inset:0;z-index:95;background:var(--panel,#fff);padding:20px;overflow:auto";
+        dock.innerHTML = '<button type="button" data-kb-action="close" aria-label="关闭">×</button>'
+          + '<h3>笔记</h3><div data-kb-dock-body></div>';
+        document.body.appendChild(dock);
+        dock.querySelector("[data-kb-action='close']").addEventListener("click", function () { dock.hidden = true; });
+      }
+      dock.querySelector("[data-kb-dock-body]").textContent = "节点 " + nodeId + " 的笔记";
+      dock.hidden = false;
+    };
+    window.kbGenerateCard = function () {};
+    window.kbGenerateQuiz = function () {};
+    // 目录栏收起：真实页面由 app.js 绑，这里走同一个组件入口
+    document.addEventListener("click", function (event) {
+      if (event.target.closest("[data-kb-collapse-left]")) window.KBPassport.setLeftCollapsed(true);
+    });
+    // 单击节点开护照（与 app.js 的绑定等价）；双击留给掌握度分析，护照不参与
+    document.addEventListener("click", function (event) {
+      var node = event.target.closest(".graph-node");
+      if (!node) return;
+      window.KBPassport.open(node.getAttribute("data-node-id"));
+    });
+  </script>
+  <script>
+    // —— 模拟图谱：画出与真机同构的卡片节点 + 曲线边 ——
+    (function () {
+      var NODES = [
+        { node_id: "p1", name: "光电子技术", parent_id: null, learning_status: "encountered", mastery_score: 0 },
+        { node_id: "p2", name: "激光器设计与固合因素", parent_id: "p1", learning_status: "learning", mastery_score: 0.35 },
+        { node_id: "p3", name: "激光放大器设计考虑", parent_id: "p1", learning_status: "unexplored", mastery_score: 0 },
+        { node_id: "p4", name: "谐振腔工程思健", parent_id: "p2", learning_status: "unexplored", mastery_score: 0 },
+        { node_id: "p5", name: "调Q工作原理与速率方程", parent_id: "p2", learning_status: "unexplored", mastery_score: 0 },
+        { node_id: "p6", name: "声光调Q技术", parent_id: "p1", learning_status: "unexplored", mastery_score: 0 },
+      ];
+      // 探针会注入自己的 fixture（state.nodes），让断言里的节点名/面包屑成立
+      state.nodes = window.__NODES__ || NODES;
+      var VISIBLE = state.nodes.slice(0, 6);
+      var POS = [[40, 150], [40, 40], [40, 96], [300, 12], [300, 68], [40, 206]];
+      var W = 210, H = 46;
+      var svg = '<svg viewBox="0 0 560 280" style="width:100%;height:100%;display:block">';
+      svg += '<defs><marker id="ah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">'
+        + '<path d="M0 0 L9 3.5 L0 7" fill="#b9b2a4"/></marker></defs>';
+      VISIBLE.forEach(function (n, i) {
+        if (i === 0) return;
+        var a = POS[0], b = POS[i];
+        var sx = a[0] + W, sy = a[1] + H / 2, ex = b[0], ey = b[1] + H / 2;
+        var c = Math.max(30, Math.abs(ex - sx) * 0.45);
+        svg += '<path d="M' + sx + ' ' + sy + ' C' + (sx + c) + ' ' + sy + ',' + (ex - c) + ' ' + ey + ',' + ex + ' ' + ey
+          + '" fill="none" stroke="#c8c0b0" stroke-width="1.5" marker-end="url(#ah)"/>';
+      });
+      VISIBLE.forEach(function (n, i) {
+        var p = POS[i];
+        var tone = n.learning_status === "learning" ? ["rgba(107,142,224,.16)", "#6b8de0"]
+          : n.learning_status === "encountered" ? ["rgba(52,87,232,.12)", "#3457e8"]
+          : ["rgba(197,207,222,.2)", "#c5cfde"];
+        var meta = n.learning_status === "learning" ? "学习中" : "未探索";
+        svg += '<g class="graph-node" data-node-id="' + n.node_id + '" transform="translate(' + p[0] + ' ' + p[1] + ')">'
+          + '<rect width="' + W + '" height="' + H + '" rx="9" fill="' + tone[0] + '" stroke="' + tone[1] + '" stroke-width="1.2"/>'
+          + '<rect x="9" y="13" width="3.5" height="20" rx="1.8" fill="' + tone[1] + '"/>'
+          + '<text x="21" y="22" font-size="12.5" font-weight="600" fill="#2d2a26">' + n.name + "</text>"
+          + '<text x="21" y="37" font-size="10.5" fill="#777168">' + meta + "</text></g>";
+      });
+      svg += "</svg>";
+      document.getElementById("graph-wrap").innerHTML = svg;
+    })();
+  </script>
+</body>
+</html>

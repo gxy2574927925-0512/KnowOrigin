@@ -1,0 +1,5 @@
+# Windows 批处理脚本必须以 CRLF 字节存储（-text = 按二进制原样入库），
+# 保证 git clone / GitLab zip 打包 / 单文件 raw 下载拿到的都是 CRLF，
+# 否则 cmd.exe 无法解析 LF 行尾的批处理（标签、goto、call 全部失效）。
+*.cmd -text
+*.bat -text

@@ -1,0 +1,354 @@
+{
+ "character": "hxt-pet-anime",
+ "skin": "blossom-fairy",
+ "layout": {
+  "note": "每个动作独立目录，逐帧 PNG"
+ },
+ "frame": {
+  "canvas": 480,
+  "format": "RGBA PNG",
+  "note": "per-action content-trimmed"
+ },
+ "actions": [
+  {
+   "name": "clutch",
+   "frame_count": 6,
+   "frame_duration_ms": 1100,
+   "loop": true,
+   "frames": [
+    "frames/clutch/clutch-01.png",
+    "frames/clutch/clutch-02.png",
+    "frames/clutch/clutch-03.png",
+    "frames/clutch/clutch-04.png",
+    "frames/clutch/clutch-05.png",
+    "frames/clutch/clutch-06.png"
+   ],
+   "frame_w": 244,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "idle",
+   "frame_count": 6,
+   "frame_duration_ms": 950,
+   "loop": true,
+   "frames": [
+    "frames/idle/idle-01.png",
+    "frames/idle/idle-02.png",
+    "frames/idle/idle-03.png",
+    "frames/idle/idle-04.png",
+    "frames/idle/idle-05.png",
+    "frames/idle/idle-06.png"
+   ],
+   "frame_w": 244,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "happy",
+   "frame_count": 6,
+   "frame_duration_ms": 300,
+   "loop": true,
+   "frames": [
+    "frames/happy/happy-01.png",
+    "frames/happy/happy-02.png",
+    "frames/happy/happy-03.png",
+    "frames/happy/happy-04.png",
+    "frames/happy/happy-05.png",
+    "frames/happy/happy-06.png"
+   ],
+   "frame_w": 243,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "think",
+   "frame_count": 6,
+   "frame_duration_ms": 430,
+   "loop": true,
+   "frames": [
+    "frames/think/think-01.png",
+    "frames/think/think-02.png",
+    "frames/think/think-03.png",
+    "frames/think/think-04.png",
+    "frames/think/think-05.png",
+    "frames/think/think-06.png"
+   ],
+   "frame_w": 249,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "rest",
+   "frame_count": 6,
+   "frame_duration_ms": 520,
+   "loop": true,
+   "frames": [
+    "frames/rest/rest-01.png",
+    "frames/rest/rest-02.png",
+    "frames/rest/rest-03.png",
+    "frames/rest/rest-04.png",
+    "frames/rest/rest-05.png",
+    "frames/rest/rest-06.png"
+   ],
+   "frame_w": 247,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "sleep",
+   "frame_count": 6,
+   "frame_duration_ms": 780,
+   "loop": true,
+   "frames": [
+    "frames/sleep/sleep-01.png",
+    "frames/sleep/sleep-02.png",
+    "frames/sleep/sleep-03.png",
+    "frames/sleep/sleep-04.png",
+    "frames/sleep/sleep-05.png",
+    "frames/sleep/sleep-06.png"
+   ],
+   "frame_w": 262,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "shy",
+   "frame_count": 6,
+   "frame_duration_ms": 400,
+   "loop": true,
+   "frames": [
+    "frames/shy/shy-01.png",
+    "frames/shy/shy-02.png",
+    "frames/shy/shy-03.png",
+    "frames/shy/shy-04.png",
+    "frames/shy/shy-05.png",
+    "frames/shy/shy-06.png"
+   ],
+   "frame_w": 248,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "walk",
+   "frame_count": 6,
+   "frame_duration_ms": 200,
+   "loop": true,
+   "frames": [
+    "frames/walk/walk-01.png",
+    "frames/walk/walk-02.png",
+    "frames/walk/walk-03.png",
+    "frames/walk/walk-04.png",
+    "frames/walk/walk-05.png",
+    "frames/walk/walk-06.png"
+   ],
+   "frame_w": 245,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "run",
+   "frame_count": 6,
+   "frame_duration_ms": 140,
+   "loop": true,
+   "frames": [
+    "frames/run/run-01.png",
+    "frames/run/run-02.png",
+    "frames/run/run-03.png",
+    "frames/run/run-04.png",
+    "frames/run/run-05.png",
+    "frames/run/run-06.png"
+   ],
+   "frame_w": 245,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "cry",
+   "frame_count": 6,
+   "frame_duration_ms": 280,
+   "loop": true,
+   "frames": [
+    "frames/cry/cry-01.png",
+    "frames/cry/cry-02.png",
+    "frames/cry/cry-03.png",
+    "frames/cry/cry-04.png",
+    "frames/cry/cry-05.png",
+    "frames/cry/cry-06.png"
+   ],
+   "frame_w": 248,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "angry",
+   "frame_count": 6,
+   "frame_duration_ms": 300,
+   "loop": true,
+   "frames": [
+    "frames/angry/angry-01.png",
+    "frames/angry/angry-02.png",
+    "frames/angry/angry-03.png",
+    "frames/angry/angry-04.png",
+    "frames/angry/angry-05.png",
+    "frames/angry/angry-06.png"
+   ],
+   "frame_w": 248,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "laugh",
+   "frame_count": 6,
+   "frame_duration_ms": 220,
+   "loop": true,
+   "frames": [
+    "frames/laugh/laugh-01.png",
+    "frames/laugh/laugh-02.png",
+    "frames/laugh/laugh-03.png",
+    "frames/laugh/laugh-04.png",
+    "frames/laugh/laugh-05.png",
+    "frames/laugh/laugh-06.png"
+   ],
+   "frame_w": 243,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "wave",
+   "frame_count": 6,
+   "frame_duration_ms": 250,
+   "loop": true,
+   "frames": [
+    "frames/wave/wave-01.png",
+    "frames/wave/wave-02.png",
+    "frames/wave/wave-03.png",
+    "frames/wave/wave-04.png",
+    "frames/wave/wave-05.png",
+    "frames/wave/wave-06.png"
+   ],
+   "frame_w": 247,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "jump",
+   "frame_count": 6,
+   "frame_duration_ms": 130,
+   "loop": true,
+   "frames": [
+    "frames/jump/jump-01.png",
+    "frames/jump/jump-02.png",
+    "frames/jump/jump-03.png",
+    "frames/jump/jump-04.png",
+    "frames/jump/jump-05.png",
+    "frames/jump/jump-06.png"
+   ],
+   "frame_w": 237,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "surprised",
+   "frame_count": 6,
+   "frame_duration_ms": 140,
+   "loop": true,
+   "frames": [
+    "frames/surprised/surprised-01.png",
+    "frames/surprised/surprised-02.png",
+    "frames/surprised/surprised-03.png",
+    "frames/surprised/surprised-04.png",
+    "frames/surprised/surprised-05.png",
+    "frames/surprised/surprised-06.png"
+   ],
+   "frame_w": 248,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "cheer",
+   "frame_count": 6,
+   "frame_duration_ms": 250,
+   "loop": true,
+   "frames": [
+    "frames/cheer/cheer-01.png",
+    "frames/cheer/cheer-02.png",
+    "frames/cheer/cheer-03.png",
+    "frames/cheer/cheer-04.png",
+    "frames/cheer/cheer-05.png",
+    "frames/cheer/cheer-06.png"
+   ],
+   "frame_w": 243,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  },
+  {
+   "name": "love",
+   "frame_count": 6,
+   "frame_duration_ms": 310,
+   "loop": true,
+   "frames": [
+    "frames/love/love-01.png",
+    "frames/love/love-02.png",
+    "frames/love/love-03.png",
+    "frames/love/love-04.png",
+    "frames/love/love-05.png",
+    "frames/love/love-06.png"
+   ],
+   "frame_w": 243,
+   "frame_h": 320,
+   "anchor": {
+    "x": 0.5,
+    "y": 1.0
+   }
+  }
+ ]
+}

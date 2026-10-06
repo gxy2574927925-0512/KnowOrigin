@@ -1,0 +1,140 @@
+.env
+.env.*
+!.env.example
+
+# Node：只有前端体检脚本（tools/*.mjs）需要 jsdom，运行应用本身零依赖。
+# package.json / package-lock.json 进仓库是为了让 `npm ci` 可复现地跑这些体检脚本。
+node_modules/
+# Snippet mirror
+snippet_competition_key.json
+# 运行时数据不入库；唯一例外是英文词库（clone 即用必需，见 core/english_dict.py）
+data/*
+!data/english/
+data/english/*
+!data/english/basic.json
+!data/english/decks.json
+!data/english/lemma.json
+!data/english/NOTICE.md
+!data/english/wordroot.json
+!data/english/words.json
+uploads/
+logs/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.venv311/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Internal working files
+.workbuddy/
+1/
+.code-graph.json
+
+# Diagnostic / temporary / development scripts (not required to run the app)
+_*.py
+_*.js
+_*.txt
+_*.png
+*.bak
+
+# Large binary files (not shipped in the repo)
+# 演示视频 518 MB，超出仓库承载，改放 GitLab 包仓库 / Release（见 README 提交物清单）
+*.avi
+*.mov
+*.mp4
+test-main.zip
+
+# Submission documents (not code)
+扫描件*.pdf
+*.pcap
+
+# Cloud deployment (not needed for local evaluation)
+Dockerfile
+railway.json
+render.yaml
+
+# Local-only launcher (unlocks API for dev, not for GitLab)
+本地启动.cmd
+
+# 本地 Agent 工具的产物（架构图缓存 / 会话索引），不是运行必需
+.archify/
+.workbuddy-ai/
+
+# Legacy launchers not needed on GitLab
+/*.ps1
+/*.html
+
+# Pet art: 运行时只加载 static/img/hxt/anime/ 下的这几套逐帧图集
+#   v6        海棠花仙（默认形象）
+#   v5        花瓣红发
+#   v5-legacy 粉发蓝衫（初版存档）
+# 旧的 pixel / v1 / v2 / v4 与打包 zip 均为开发残留，不随仓库分发。
+static/img/hxt/pixel/
+static/img/hxt/anime/v1/
+static/img/hxt/anime/v2/
+static/img/hxt/anime/v3/
+static/img/hxt/anime/v4/
+static/img/hxt/anime/raw/
+static/img/hxt/png/filled_raw/
+static/img/hxt/**/*.zip
+
+# 形象生成工程：原始姿势图与打包中间产物不进仓库
+# （透明帧图集由 static/img/hxt/anime/v5|v5-legacy|v6 承担，exe 由交付目录承担）
+2d-hxt-pet/frames_raw*/
+2d-hxt-pet/_gen_v2/
+2d-hxt-pet/build*/
+2d-hxt-pet/dist*/
+2d-hxt-pet/HaiXiaoTangPet.spec
+
+# Dev reference / intermediate / screenshot / prototype assets (not shipped)
+_refs/
+_ref_projects/
+frames_raw/
+screenshots/
+prototypes/
+# 注意：README 引用的 screenshots/ 里的图需 `git add -f screenshots` 显式加入，
+# 否则 GitLab 上 README 配图会 404。
+
+# AI 生成图的原始出图（开发过程产物，运行时不加载）
+generated-images/
+
+# 桌面宠物工程整体不进仓库（北洋问学 Web 端用不到；北洋问学里的桌宠由 static/hxt-* + 图集承担）
+2d-hxt-pet/
+# 图集只随仓库分发默认形象 v6（海棠花仙），另两套皮肤为本地开发用
+static/img/hxt/anime/v5/
+static/img/hxt/anime/v5-legacy/
+
+# 测试与测试配置：本地保留（178 个用例是改 AI 逻辑的回归网），仓库只发运行必需文件
+tests/
+pytest.ini
+
+# 开发期规划文档与一次性脚本（本地保留，不影响运行）
+plans/
+design.md
+plan.md
+smoke_persona.py
+_tools/
+
+# 交接文档：给「下一个动手的 agent」看的施工单，不是运行必需（见 KNOW-README-FIRST.md）
+KNOW-README-FIRST.md
+KnowOrigin-HANDOVER-*.md
+AGENT_HANDOFF.md
+*_HANDOVER*.md
+chk_menu_tmp.mjs
+
+# 借来的参考项目与内部分析文档（本地保留，不进仓库）
+_borrowed_proj/
+docs/
+
+# 本地备份与临时测试目录
+.backup*/
+.pytest_tmp/
+
+# 品牌源文件与尺寸组（运行只需 static/icon.svg 与 static/icons/，源稿本地保留）
+brand/

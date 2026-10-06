@@ -1,0 +1,754 @@
+/* ============================================================
+  classic 浅色配色回退层（自动生成，勿手改）
+  由 tools/build_classic_palette.py 从 10/01 原始工程还原。
+  背景：字面暖色被迁到语义 token 后，classic 因没有专属 token 块而变色。
+  academic / agent 有自己的 token 块，不受影响，这里也不加它们的规则。
+  只写颜色属性，不写布局 —— 避免日后上游改布局时被这里静默覆盖回去。
+  作用域带 :where(:not([data-theme="dark"]))：这是浅色层，深色下必须让位给 styles.css
+  里的 html[data-theme="dark"] 规则。只写 html[data-ui="classic"] 时，classic 切深色
+  后整层浅色暖调仍会压住深色规则（页签变白底 + 深色 token 的浅字 = 不可读）。
+  这里用 :where(:not(...)) 而不是裸 :not(...)：后者按参数计特异性，会把这一层
+  从 (0,2,1) 抬到 (0,3,1)，浅色下反过来压过 styles.css 里同权重的品牌规则。
+ ============================================================ */
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .resize-hint {
+  border: 1px solid #d8e2d3;
+  color: var(--green-dark);
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 8px 22px rgba(76, 65, 50, 0.14);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .panel-resizer:hover .resizer-grip, html[data-ui="classic"]:where(:not([data-theme="dark"])) .panel-resizer:focus-visible .resizer-grip, html[data-ui="classic"]:where(:not([data-theme="dark"])) .panel-resizer.is-active .resizer-grip {
+  border-color: #c7d8c0;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .sources-panel {
+  background: linear-gradient(180deg, #f3eee4, #eee8db);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .source-import-progress-track, html[data-ui="classic"]:where(:not([data-theme="dark"])) .pending-file-progress {
+  background: #eee8de;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .source-item.source-preview-trigger:hover {
+  border-color: #a9c39f;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 14px rgba(var(--green-dark-rgb), 0.1);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .file-action:hover {
+  border-color: #a9c39f;
+  background: white;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .file-external-link:hover {
+  color: white;
+  border-color: #4a7c59;
+  background: #4a7c59;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .file-type-txt {
+  color: #4f7650;
+  border-color: #bfd4bc;
+  background: #e8f1e4;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .build-button small {
+  color: #c9c1b7;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .build-progress {
+  border: 1px solid #c9d8c2;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .build-progress-track {
+  background: #ddd7cc;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .message > div {
+  background: #f4f0e7;
+}
+
+/* ⚠️ 上一条 .message > div 会连用户气泡一起命中（用户气泡也是 .message > div），
+   把它压成了纯色 #f4f0e7、渐变被吃掉 —— 症状是「我的问题」变成淡米底、白字几乎看不见。
+   它的特异性 (0,2,2) 高于 styles.css 里 .user-message > div 的 (0,1,1)，
+   所以必须在这里用同等特异性把用户气泡还原。
+
+   配色用莫兰迪雾绿 #647462 → #50604e：
+   原来的鼠尾草绿 #7ca96d 饱和度 0.36、白字对比只有 2.71:1（远低于 WCAG AA 的 4.5:1），
+   在暖米底上既刺眼又看不清。雾绿把饱和度压到 0.16，白字对比提到 4.62:1 ——
+   依然是"绿"，但退到背景后面，不抢内容。两条色标都写死，不跟随品牌
+   （通用品牌会把 --green-dark-rgb 覆盖成蓝紫）。 */
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .user-message > div {
+  color: #ffffff;
+  background: linear-gradient(148deg, rgba(100, 116, 98, 0.96) 0%, rgba(80, 96, 78, 0.96) 100%);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  backdrop-filter: blur(8px) saturate(1.1);
+  box-shadow: 0 8px 20px rgba(80, 96, 78, 0.22);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .math-display {
+  border-left: 3px solid #9aba8e;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .citation-chip {
+  border: 1px solid #c7d8c0;
+  color: var(--green-dark);
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .citation-chip:hover {
+  border-color: var(--green);
+  background: #f1f7ed;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .suggested-refresh:hover {
+  color: var(--green-dark);
+  border-color: #a9c39f;
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .suggested-restore:hover {
+  color: var(--green-dark);
+  border-color: #a9c39f;
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .suggested-question-chip:hover {
+  border-color: #a9c39f;
+  color: var(--green-dark);
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .problem-image-preview {
+  border: 1px solid var(--line);
+  background: #f8f5ee;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .composer-footer {
+  color: var(--muted);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .voice-input-button {
+  border: 1px solid #ded7ca;
+  color: var(--green-dark);
+  background: #fffdf8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .voice-input-button:hover {
+  border-color: #a9c39f;
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .attach-button {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: #faf8f3;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .attach-button:hover {
+  border-color: #a9c39f;
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .assistant-message .avatar {
+  background: linear-gradient(148deg, #7da96f 0%, var(--green-dark) 78%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 3px 9px rgba(var(--green-dark-rgb), 0.26);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .agent-panel .send-button {
+  background: linear-gradient(148deg, #79a86c 0%, var(--green-dark) 100%);
+  box-shadow: 0 4px 12px rgba(var(--green-dark-rgb), 0.22);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-expand-button {
+  border: 1px solid #cfdac9;
+  color: var(--green-dark);
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-expand-button:hover {
+  border-color: var(--green);
+  background: #f0f6ec;
+  box-shadow: 0 6px 16px rgba(var(--green-dark-rgb), 0.14);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-panel.studio-focus {
+  border-color: rgba(var(--green-rgb), 0.38);
+  background: #fffdf8;
+  box-shadow: 0 34px 100px rgba(29, 28, 24, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .feature-button {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: #fbf8f2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .feature-button:hover, html[data-ui="classic"]:where(:not([data-theme="dark"])) .feature-button.active {
+  border-color: #a9c39f;
+  background: var(--green-soft);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-panel:not(.studio-focus) .card:hover, html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-panel:not(.studio-focus) .quiz-question:hover, html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-panel:not(.studio-focus) .metric-card:hover, html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-panel:not(.studio-focus) .graph-wrap:hover, html[data-ui="classic"]:where(:not([data-theme="dark"])) .studio-panel:not(.studio-focus) .node-detail:hover {
+  border-color: #a9c39f;
+  box-shadow: 0 10px 24px rgba(var(--green-dark-rgb), 0.12);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .graph-edge.graph-edge-active {
+  stroke: #628d58;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .kb-src-ai-bg {
+  fill: #e5efdf;
+  stroke: #6b9e5c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .kb-src-ai-text {
+  fill: #4f7d43;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .kb-src-ai:hover .kb-src-ai-bg, html[data-ui="classic"]:where(:not([data-theme="dark"])) .kb-src-ai:focus-visible .kb-src-ai-bg {
+  fill: #6b9e5c;
+  stroke: #4f7d43;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .kb-flow-grid-dot {
+  fill: #d9d1c2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .framework-tree::-webkit-scrollbar-thumb {
+  background: #cbc4b6;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .framework-tree-status.s-unknown {
+  background: #d8d3ca;
+  box-shadow: 0 0 0 1.5px rgba(216, 211, 202, 0.4);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .framework-mastery-bar-track {
+  background: #efeae0;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .framework-progress-body::-webkit-scrollbar-thumb {
+  background: #cbc4b6;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .node-detail-dialog {
+  border: 1px solid rgba(var(--green-rgb), 0.32);
+  background: #fffdf8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .node-detail-close {
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: #f8f4ec;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .node-edit-form input:focus, html[data-ui="classic"]:where(:not([data-theme="dark"])) .node-edit-form textarea:focus, html[data-ui="classic"]:where(:not([data-theme="dark"])) .node-edit-form select:focus {
+  outline: 3px solid rgba(var(--green-rgb), 0.18);
+  border-color: #7ea472;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .mini-button {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: #f8f4ec;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .metric-card {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .progress-track {
+  background: #eee8de;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .overview-hero, html[data-ui="classic"]:where(:not([data-theme="dark"])) .overview-panel {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .overview-hero {
+  background: linear-gradient(135deg, #eef5e9, #fffaf0);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .mastery-stack {
+  background: #eee8de;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .evidence-grid > div {
+  border: 1px solid var(--line);
+  background: #faf8f3;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .evidence-grid .evidence-item--k-question {
+  border-left: 4px solid #d9c67a;
+  background: #fdfaed;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .evidence-grid .evidence-item--k-quiz {
+  border-left: 4px solid #7ea76b;
+  background: #eef5ea;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk {
+  color: #333;
+  background: #ece8de;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk.k-question {
+  background: #f5e8b7;
+  color: #71580c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk.k-quiz {
+  background: #cfe2bf;
+  color: #335520;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-rate-btn:hover {
+  background: #f4efe2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .evidence-item.is-as-button {
+  border: 1px solid var(--line);
+  border-left: 4px solid #aaa;
+  background: #faf8f3;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk-btn {
+  color: #333;
+  background: #ece8de;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk-btn.k-question {
+  background: #f5e8b7;
+  color: #71580c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk-btn.k-quiz {
+  background: #cfe2bf;
+  color: #335520;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .pill:hover:not(:disabled) {
+  background: #f5f0e2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .pill.is-active {
+  outline: 2px solid #5b8b47;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .pill.k-question {
+  background: #fcf3cf;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .mastery-trail-dialog {
+  border: none;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.18);
+  background: #fbf7ed;
+  color: var(--ink);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .mastery-trail-table thead th {
+  background: #f2ecd9;
+  color: #4a3f1c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .trail-status.applied {
+  background: #e1efd4;
+  color: #2d5818;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .trail-status.pending {
+  background: #f1e1bd;
+  color: #745316;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .mastery-trail-dialog .node-detail-close:hover {
+  background: #e9e0c9;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .mastery-trail-table tr.is-clickable td.trail-ref {
+  color: #457d33;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card.is-flash, html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-question.is-flash, html[data-ui="classic"]:where(:not([data-theme="dark"])) .message.is-flash {
+  outline: 2px solid #457d33;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .node-mastery-dialog {
+  border: none;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.18);
+  background: #fbf7ed;
+  color: var(--ink);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .node-mastery-header .node-detail-close:hover {
+  background: #e9e0c9;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbs-score strong {
+  color: #3a6b35;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk-mini {
+  background: #f0ead8;
+  color: var(--ink);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk-mini.k-question {
+  background: #f5e8b7;
+  color: #71580c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .nbk-mini.k-quiz {
+  background: #cfe2bf;
+  color: #335520;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .side-kind-icons {
+  background: #f5eed8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .side-kind-icon.k-quiz {
+  border-color: #9cbf85;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .empty-state-tip {
+  background: #fff8e7;
+  color: #7a6a3a;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .overview-node-card {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: #faf8f3;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .overview-node-card:hover {
+  border-color: rgba(var(--green-rgb), 0.55);
+  background: #f6f9f2;
+  box-shadow: 0 4px 14px rgba(var(--green-dark-rgb), 0.12);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-artifact-toolbar::before {
+  background: linear-gradient(90deg, #7fb26a, #b7d48a 50%, #f0c36a);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-artifact-toolbar strong {
+  color: #2d4a22;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .sat-meta {
+  color: #6b7f5d;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-more .secondary-button {
+  border-color: #b9cbb2;
+  color: var(--green-dark);
+  background: #fbfdf9;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-difficulty {
+  background: #f5f7f2;
+  border: 1px solid #dde5d6;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .diff-pill {
+  border: none;
+  color: #6b7a5e;
+  background: transparent;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .diff-help {
+  border: 1px solid #dde5d6;
+  background: #f5f7f2;
+  color: #7b8a6e;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-type-selector {
+  background: #f5f7f2;
+  border: 1px solid #dde5d6;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .type-check {
+  color: #6b7a5e;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card.is-bulk-selected, html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-question.is-bulk-selected {
+  border-color: rgba(199, 92, 92, 0.82);
+  background: linear-gradient(145deg, #fffdf8, #fff5f3);
+  outline: 3px solid rgba(199, 92, 92, 0.12);
+  box-shadow: 0 0 0 3px rgba(199, 92, 92, 0.12);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-table thead th {
+  background: #f2ecd9;
+  color: #4a3f1c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-item-menu-popover button:hover {
+  background: #f2f5f0;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-item-menu-node:hover {
+  background: #f2f5f0;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-source-chip {
+  border: 1px solid rgba(var(--green-rgb), 0.32);
+  color: var(--green-dark);
+  background: #edf6e8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .study-source-chip:hover {
+  border-color: rgba(var(--green-rgb), 0.6);
+  background: #e4f0da;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-button {
+  border: 1px solid #d8c487;
+  color: #8a6b17;
+  background: #fffaf0;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-button.favorite-green {
+  border-color: rgba(var(--green-rgb), 0.54);
+  color: var(--green-dark);
+  background: #edf6e8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-button.favorite-none {
+  border-color: rgba(104, 96, 78, 0.4);
+  color: #6b6353;
+  background: #f7f5f0;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .color-green {
+  background: #aed796;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorites-overview {
+  border: 1px solid #d8e2d3;
+  background: linear-gradient(135deg, var(--green-soft), #fffaf0);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-group {
+  border: 1px solid var(--line);
+  background: #faf8f3;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-group > header {
+  color: var(--muted);
+  background: #f3eee4;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-answer p {
+  background: #f7f4ed;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-edit-form input, html[data-ui="classic"]:where(:not([data-theme="dark"])) .favorite-edit-form textarea {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: #fffdf8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-question input[type="text"], html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-question textarea {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .error-banner.is-notice {
+  border-color: #c6d8bf;
+  color: #416d38;
+  background: #f1f7ed;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .undo-toast {
+  border: 1px solid #c6d8bf;
+  color: var(--ink);
+  background: rgba(255, 253, 248, 0.97);
+  box-shadow: 0 16px 42px rgba(49, 44, 37, 0.18);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .config-feedback {
+  color: var(--muted);
+  background: #f3efe7;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .source-preview-body {
+  background: #f7f4ed;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .source-image-original img {
+  background: #eeeae2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .source-image-gallery {
+  background: #f2eee6;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .source-image-gallery img {
+  background: #faf9f5;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .source-text-content {
+  color: #3b3833;
+  background: #fffefa;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-history-toggle {
+  border: 1px solid var(--line);
+  background: #fefdfb;
+  color: var(--muted);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-history-toggle:hover {
+  border-color: #b9cbb2;
+  color: var(--green-dark);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-history-item.is-current {
+  border-color: #c8dbbf;
+  background: #f5f9f1;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-history-score.score-high {
+  background: #e8f5e0;
+  color: #3a7d2c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-history-score.score-mid {
+  background: #fef6e0;
+  color: #96720a;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .quiz-history-score.score-none {
+  background: #f4f3f0;
+  color: var(--muted);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .historic-quiz-header {
+  border: 1px solid var(--line);
+  background: #faf8f3;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .historic-quiz-badge {
+  background: #e9e0c9;
+  color: #6b5e3e;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .historic-question label.historic-correct {
+  background: #f0f8e8;
+  border-left: 3px solid var(--green);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .historic-correct-mark {
+  color: #3a7d2c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .historic-answer {
+  background: #f0f8e8;
+  border-left: 3px solid var(--green);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .historic-explanation {
+  background: #faf8f3;
+  color: var(--muted);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .tju-import-progress-track {
+  background: #eee8de;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card.flip-card.is-bulk-selected .flip-card-face {
+  border-color: rgba(199, 92, 92, 0.82);
+  background: linear-gradient(145deg, #fffdf8, #fff5f3);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card.flip-card:hover .flip-card-cue, html[data-ui="classic"]:where(:not([data-theme="dark"])) .card.flip-card:hover .flip-card-cue > span {
+  color: #5f8f4c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card.flip-card:hover .flip-cue-btn {
+  border-color: #5f8f4c;
+  color: #5f8f4c;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .flip-card-cue {
+  color: #9a9f96;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .flip-card-cue > span {
+  color: #9a9f96;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .flip-cue-btn, html[data-ui="classic"]:where(:not([data-theme="dark"])) .flip-back-btn, html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-open-btn {
+  border: 1px solid rgba(var(--green-rgb), 0.4);
+  background: #f3f7ee;
+  color: #3f6b33;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .flip-cue-btn:hover, html[data-ui="classic"]:where(:not([data-theme="dark"])) .flip-back-btn:hover {
+  background: #5f8f4c;
+  border-color: #5f8f4c;
+  color: #fffdf2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-open-btn {
+  background: linear-gradient(180deg, #5f8f4c, #4b7a3f);
+  border-color: #4b7a3f;
+  color: #fffdf2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-open-btn:hover {
+  background: #4b7a3f;
+  border-color: #3f6b33;
+  color: #fffdf2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-panel {
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: #fffdf8;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-count {
+  color: #2d4a22;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-hint {
+  color: #9a9f96;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-nav-btn, html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-close {
+  border: 1px solid rgba(var(--green-rgb), 0.35);
+  background: #fff;
+  color: #3f6b33;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-nav-btn:hover:not(:disabled), html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-close:hover {
+  background: #5f8f4c;
+  border-color: #5f8f4c;
+  color: #fffdf2;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .card-viewer-question .study-title-line strong {
+  color: #24401b;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .kb-tag-chip.is-active i {
+  color: #eaf4e6;
+}
+
+html[data-ui="classic"]:where(:not([data-theme="dark"])) .question-node::after {
+  background: #2d2a26;
+  color: #f6f3ec;
+  box-shadow: 0 6px 18px rgba(20, 16, 8, 0.22);
+}
