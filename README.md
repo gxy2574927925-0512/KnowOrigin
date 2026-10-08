@@ -94,7 +94,7 @@
 | 源码（后端） | `src/` | `api_server.py` + `core/` 55 个业务模块 + `tools/`（含 CI 门禁 `ci_gate.py`） |
 | 源码（前端） | `static/` | 原生 JS 单页应用，无构建链 |
 | 设计说明 | `DESIGN.md` | 设计取舍与演进 |
-| **版权合规承诺书** | `版权合规承诺书.pdf` | 手签扫描件，随本仓库一并提交 |
+| ~~版权合规承诺书~~ | — | 手签扫描件含个人签名，**开源版不随仓库分发**（校内 GitLab 提交版仍附该文件） |
 | 第三方许可 | [下方表格](#第三方组件与开源许可) + `NOTICE.md` + `data/english/NOTICE.md` | 逐项标注来源与许可证 |
 | CI | `.gitlab-ci.yml` | 零依赖极简流水线（避免 Auto DevOps 模板必然变红） |
 | **演示视频（完整操作）** | [Release `demo-video-v1`][demo-video] | 约 16 分钟全程录屏（1440×738）。视频 541 MB 超出仓库承载，单独存放在 GitLab **包仓库**，从 Release 页下载即可（需登录天大 GitLab） |
@@ -108,8 +108,8 @@
 ### 方式 A：双击启动（Windows，推荐）
 
 ```bash
-git clone https://gitlab.tju.edu.cn/3023202226/agent2026-Knoworigin.git
-cd agent2026-Knoworigin
+git clone https://github.com/gxy2574927925-0512/KnowOrigin.git
+cd KnowOrigin
 ```
 
 双击 **`打开知源.cmd`**，脚本会自动完成环境检测、创建 `.venv311`、安装依赖、生成 `.env`、清理残留进程、探测端口并启动服务，然后自动打开浏览器。唯一前置条件是本机已有 Python 3.11+（缺失时脚本会用 winget 自动安装）。所有依赖仅装在项目目录内，**不污染系统环境**。
