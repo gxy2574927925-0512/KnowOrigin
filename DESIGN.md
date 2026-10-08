@@ -16,26 +16,27 @@
 │  index.html · app.js · agent-shell.js（工作台外壳）              │
 │  literature.js · english-exam-ui.js · english-vocab-ui.js       │
 │  study-desk-ui.js · streak.js · hxt-pet.js（桌宠）               │
+│  reading.js（读书）· kb-neural-view.js / rd-neural-view.js（沉浸图谱）│
 │  三套布局：styles.css + agent-layout.css + classic-palette.css   │
-│  两层纯样式增强：styles-polish.css + styles-immersive.css        │
+│  纯样式增强层：styles-polish / styles-immersive / styles-neural  │
 │  KaTeX（完全本地化）· Web Manifest                                │
 └────────────────────────────┬─────────────────────────────────┘
                                │  HTTP + SSE（流式）
 ┌────────────────────────────┴─────────────────────────────────┐
-│  接口层   FastAPI（api_server.py，单文件 ~3.0 万行）              │
+│  接口层   FastAPI（api_server.py，单文件 ~3.2 万行）              │
 │  create_app() 聚合所有路由；依赖注入 db / settings / llm_client   │
 │  认证 · 项目 · 资料 · 框架 · 卡片 · 测验 · 收藏 · 撤销 · 文献      │
 │  多会话 · Agent 工具循环 · 论文检索 · 英语应试 · 台历排期           │
-│  长期记忆 · 校园信源 · 用量记账                                   │
+│  读书（多书源）· 跨书知识网络 · 长期记忆 · 校园信源 · 用量记账       │
 └────────────────────────────┬─────────────────────────────────┘
                                │
 ┌────────────────────────────┴─────────────────────────────────┐
-│  业务层   core/（50 个模块）                                      │
+│  业务层   core/（55 个模块）                                      │
 │  database.py  framework.py  llm.py  parsers.py  models.py       │
 │  english_vocab/exam/writing  exam_scheduler  review             │
 │  paper_recall  user_memory  teaching_mode  mastery_bkt          │
-│  scaffold.py  calibration.py  progress_engine  transfer         │
-│  campus_sources.py  pages.py  prompt_catalog.py …               │
+│  reading_store  reading_digest  knowledge_net                   │
+│  weread  book_sources  progress_engine  transfer …              │
 └──────────┬───────────────────────────┬────────────────────────┘
            │                           │
 ┌──────────┴───────────┐   ┌───────────┴────────────────────────┐
@@ -84,8 +85,13 @@
 | `core/evidence_matrix.py` / `peer_review.py` | 279 / 240 | PRISMA 综述矩阵（8 维抽取、Gap 标注、CSV 导出）与顶刊同行评审红队 |
 | `core/user_memory.py` / `notify.py` / `usage.py` | 1718 / 612 / 816 | AI 长期记忆（两层固定槽位）、学习周报、AI 用量记账与每日限额 |
 | `core/vault_export.py` | 551 | 导出 Obsidian 知识库：标准 Markdown + `[[双链]]`，前端只有薄薄一层按钮 |
+| `core/book_sources.py` | 1712 | 多书源注册表（11 源 × 全文/元数据/外链，逐源标注 `has_fulltext` / `rights` / `needs_proxy`）+ **版权红线**（`has_fulltext=True` 只对 `public-domain` / `user-provided` 放行，由 `_norm()` 强制）+ **单源失败隔离**（`_safe_fetch` 下沉到每个源）；豆瓣 / 微信读书 / 古腾堡 / 维基文库 / 本地导入归一化为同一记录结构 |
+| `core/weread.py` | 571 | 微信读书适配层（**唯一出网口**）：官方 Agent API `POST /api/agent/gateway`，`Bearer wrk-` 鉴权；书架 / 进度 / 划线 / 想法 / 统计 / 推荐；`transport` 可注入，**自己不读凭据**（由 `api_server` 注入，core 层保持纯净可测） |
+| `core/reading_store.py` | 531 | 读书数据存取：`reading_books` / `reading_docs` 两表；**按需建项目**（`ensure_project`，加入书架不建）+ 收获自动沉淀卡片（稳定 `rd_` card_id upsert + 回收，只认前缀） |
+| `core/reading_digest.py` | 1487 | 读书收获：三级分类（纯规则 `guess_category`，不依赖模型）/ 每书简介 / 逐章收获；逐字段校验 + 本地兜底（兜底走宽松门槛 `_dict_list(strict=False)`）+ Markdown 渲染；`READING_ASK_SYSTEM` 定义陪读讨论口径 |
+| `core/knowledge_net.py` | 1306 | 跨书知识网络：纯函数引擎（`similarity` / `candidate_pairs` / `build_graph` / `clusters` / `find_hubs` / **`find_bridges` 割点** / `cross_support` / `build_methodology_payload` / `build_skill_cards`）+ `NetStore` 四表 + `analyze()` 一次算全（nodes / edges / clusters / hubs / bridges / support / summary） |
 
-前端相关脚本位于 `tools/`（端到端冒烟测试与图谱增长预览），不进入运行时包。
+前端相关脚本位于 `tools/`（端到端冒烟测试、UI 探针与图谱增长预览），不进入运行时包；回归测试为 `tools/verify_*.py`，CI 门禁为 `src/tools/ci_gate.py`。
 
 ---
 
@@ -188,6 +194,54 @@
 | POST | `/api/projects/{id}/knowledge-doc/compile` · `knowledge-doc/ask` | 本地合订（可带 `order` / `maxLayer`，不调模型）/ 就本节材料提问（SSE，`allow_extra` 切发散档） |
 | PUT | `/api/projects/{id}/knowledge-doc/content` | 手工编辑正文落库：只改 `content_md`，结构化留档（`content_json`）与指纹不动 |
 
+### 3.11 读书与跨书知识网络（`/api/reading/*` 独立命名空间）
+
+> 与 `/api/en/*` 同一做法：整块新能力锁在自己的命名空间里，便于回退与权限收口。
+
+**书源与书架**
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/reading/sources` | 书源注册表：每个源能给什么（全文 / 元数据 / 外链）、版权状态、可达性 |
+| POST | `/api/reading/search` | 跨书源搜书（单源失败隔离；**「源全挂」与「没这本书」分开报**） |
+| GET/POST | `/api/reading/books` | 书架清单（可按一级领域筛选）/ 加入书架（默认**不建项目**，`with_project=true` 才建） |
+| GET | `/api/reading/books/{book_key}` | 书籍详情：简介 / 评分 / 章节 / 进度 / 划线数 |
+| PUT | `/api/reading/books/{book_key}/doc` | 保存手工编辑过的正文（`content_md` 直改，防抖落库） |
+
+**收获、简介与卡片**
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/reading/books/{book_key}/digest` | 生成《读书收获》（逐章展开），并按 `rd_` 前缀沉淀知识卡片 |
+| POST | `/api/reading/books/{book_key}/intro` | 生成每本书的一句话定位与介绍（成色不达标退回书籍自带简介） |
+| POST | `/api/reading/digests/generate-missing` | 批量补齐还没有收获的书 |
+| GET | `/api/reading/books/{book_key}/cards` | 该书收获沉淀出的卡片 |
+
+**正文与阅读**
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/reading/books/{book_key}/outline` | 阅读大纲：有全文走正文分章，微信读书走「章节目录 + 每章最热原文片段」 |
+| PUT | `/api/reading/books/{book_key}/fulltext` | 标记该书已有全文（本地导入登记） |
+| POST | `/api/reading/books/{book_key}/fulltext/fetch` | 按源取回正文（**仅公版 / 用户自备放行**，商业书直接拒绝并说明原因） |
+| POST | `/api/reading/links` | 查该书可用的外部阅读 / 下载链接 |
+| POST | `/api/reading/books/{book_key}/ask` | **陪读讨论**（SSE）：前端给选区，只送选区所在那一块；默认发散档（温度 0.8） |
+
+**微信读书（`wrk-` 密钥）**
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/reading/weread/status` | 连接状态；`?probe=1` 真打一次接口验证 Key |
+| PUT | `/api/reading/weread/key` | 保存 `wrk-` Key（校验前缀；**响应绝不回显**） |
+| POST | `/api/reading/weread/sync` | 同步书架 → 入库（**不建项目**）→ 顺带拉最近 N 本进度 |
+| GET | `/api/reading/weread/books/{book_id}/notes` | 拉划线与个人想法（收获文档的直接输入） |
+| GET | `/api/reading/weread/recommend` | 个性化推荐（发现入口） |
+
+**跨书知识网络**
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/reading/net` | 整张网 + 结构分析（簇 / 枢纽 / **桥** / 跨书支持度）+ 已生成的方法论 |
+| GET | `/api/reading/net/candidates` | 概念合并候选（**只给候选**，必带 `needs_confirmation`） |
+| POST | `/api/reading/net/merge` · DELETE `.../merge/{from_key}` | 确认合并 / 撤销（合并错误 = 假连接，故绝不自动落库） |
+| POST | `/api/reading/net/methodology` | 就某概念所在的**簇**生成方法论，并沉淀技能卡（`kn_` 前缀） |
+| POST | `/api/reading/net/ask` | 就整张网提问（SSE）；材料由前端渲染后送来，无原文选段 |
+
 ---
 
 ## 4. 核心数据流
@@ -219,11 +273,28 @@
 3. **合订**：`knowledge-doc/compile` 纯本地拼接（不调模型、不花钱），`order` 决定按框架章节还是按前置层号由浅入深，`maxLayer` 决定只收进前几层；合订稿目录据此挂「第 M 层」徽标。
 4. **手工编辑**：正文是 `contenteditable` 的 Markdown，打字后防抖调 `PUT /knowledge-doc/content`。这一层**只覆盖 `content_md`** —— `content_json` 与 `signature` 保留「模型当初写了什么」的留档，所以「全部重新生成」会用模型结果盖掉手工改动；这是有意为之，生成前会先确认。
 
+### 4.7 读书：多书源 → 书架 → 收获 → 卡片
+
+1. **取数**：`search_books` 并发问各书源（豆瓣 / 微信读书 / 古腾堡 / 维基文库 / Open Library …），每源各自 `_safe_fetch` 兜住异常并**记一笔失败**，最后归一化成同一种记录（`{source, source_id, title, cover, has_fulltext, rights, kind, …}`）；`has_fulltext` 只对公版与用户自备为真。
+2. **入库**：加入书架写 `reading_books`（只元数据）；`POST /books` 带 `with_project=True` 或后续取正文 / 沉淀卡片时才 `ensure_project()` → `Database.create_book_project()`（`project_type='book'`），幂等复用。
+3. **阅读**：`outline` 按能力分流 —— 本地导入的书走 `split_chapters()` 切出的**真正文**；微信读书的书走**章节目录 + 每章热门划线**（诚实标注不是全文）。选区提问走 `ask`（SSE），上下文由前端给出，服务端用 `knowledge_doc.excerpt_around` 只截选区那一块。
+4. **收获**：`digest` 把「划线 + 想法 + 书籍简介」喂给 `make_reading_digest`，逐字段校验（不达标只退回该字段的兜底），渲染成 Markdown 存进 `reading_docs`（`content_md` / `content_json` / `signature` 三者分离，与 `knowledge_docs` 同构）。
+5. **沉淀**：收获里的可复用模型 / 行动清单经 `build_sync_cards()` 生成稳定 `rd_` card_id，`sync_cards()` upsert 进 `cards` 并回收已消失的旧卡 —— **重新生成不丢 FSRS 排期**，且只认 `rd_` 前缀，用户手工建的卡碰不到。
+
+### 4.8 跨书知识网络：收获 → 图 → 桥 → 方法论 → 技能卡
+
+1. **灌入**：`nodes_from_digests()` 从各书收获的 `models` **与 `connections`** 抽概念节点（关联对象也必须建节点并把当前书算进书单，否则「被几本书支持」是假的）。
+2. **连边**：`edges_from_models()` 把每本书的 `connections` 连成 6 种类型化边（该书每个模型最多 3 个做起点）；`same` 由 `candidate_pairs()` 产出候选，**必带 `needs_confirmation`**。
+3. **结构分析**：`analyze()` 一次算全 `nodes / edges / clusters / cluster_keys / hubs / bridges / support / summary`。`clusters()` 不按预设目录切，`find_bridges()` 用割点识别（朴素实现：逐节点试删比连通分量数 —— 在「一个人读过的书」量级完全够用，刻意不上 Tarjan）。
+4. **合并**：用户确认后写 `net_merges`，`apply_merges()` 重新归并（**书单要并起来**，指向被合并节点的边改指新节点，自环丢弃，支持链式合并）。
+5. **归纳**：`build_methodology_payload()` 只取**一个簇**做子图社区摘要（比喂整张图准确得多），模型产出经 `normalize_methodology_result` 逐字段校验，`build_methodology_fallback` 兜底**不编方法论**；`when_not_to_use` 必须能挡住误用。
+6. **沉淀**：`build_skill_cards()` 生成 `kn_` 前缀技能卡（考「该用哪套、什么时候别用」，不是考识记），落 `cards` 表 → 自动进 FSRS。
+
 ---
 
 ## 5. 数据模型（SQLite，`data/knoworigin.sqlite3`，gitignore）
 
-核心表（与 `core/database.py`、`english_store.py`、`knowledge_doc.py` 等建表处一致）。**当前库中共 59 张表**（含 `memory_notes` 这类早期版本留下的备份表），按职责归类：
+核心表（与 `core/database.py`、`english_store.py`、`knowledge_doc.py`、`reading_store.py`、`knowledge_net.py` 等建表处一致）。**代码中共 70 张表**（含 `memory_notes` 这类早期版本留下的备份表），按职责归类：
 
 | 表 | 职责 |
 | --- | --- |
@@ -246,6 +317,11 @@
 | `en_corpus_excerpts` | 语料摘录片段（每片带原句语境与术语表） |
 | `en_feed_sources` | 联网阅读泳道的源状态与缓存 |
 | `en_passages` / `en_exam_paraphrases` / `en_exam_highlights` / `en_exam_side_cache` / `en_exam_demo_records` / `en_exam_gems` | 考研精读题库、同义替换、高亮批注、侧栏解析缓存、演示历史与精华回填 |
+| `reading_books` / `reading_docs` | 读书：书架缓存（元数据 / 封面 / 进度 / 分类 / 书源 / `has_fulltext` / `rights`）与成文产物（收获 / 简介，`content_md` / `content_json` / `signature` 三者分离） |
+| `net_nodes` / `net_edges` / `net_merges` / `net_methodologies` / `net_concept_docs` | 跨书知识网络：概念节点（名称 + 书单 + 说明）、6 种类型化边（带来源书）、**用户确认过的合并**（可累积可撤销）、簇级方法论文档（按 `cluster_key` 去重，簇变了自然失效重建）、概念文档 |
+| `node_conflicts` / `node_study_plans` / `peer_reviews` / `notices` | 知识冲突检测、单节点补课规划（后台生成）、顶刊审稿红队结果、学习周报通知 |
+
+> **技能卡不另建表**：读书收获用 `rd_` 前缀、跨书方法论用 `kn_` 前缀，都落在既有的 `cards` 表里 —— 于是自动进 FSRS 复习队列、自动被「今天该复习」统计到，回收逻辑只认前缀，用户手工建的卡永远碰不到。
 
 掌握度由 `learning_events` 按 `mastery_evidence_rules` 累积，规则通过 `compute_mastery_breakdown` 下钻。
 
@@ -265,6 +341,10 @@
 - **凭据不进仓库，重启也不用重填**：API Key 主存储是 `data/local_api_config.json`（`data/` 已 gitignore），文件里存 DPAPI 密文（Windows 绑定当前登录账户；其他平台明文），浏览器 localStorage 存一份作为换浏览器 / 无痕窗口的兜底；运行时按「环境变量 / `.env` → 凭据文件 → 浏览器下发」读取，绝不内置到仓库。
 - **双链实时反查**：节点维护 `[[链接]]` 列表，反向链接由数据库按名实时反查；图谱连线即一对双链（同名匹配、双向去重）。
 - **OCR 本地化**：扫描件/图片型页面用 RapidOCR（`_RapidOCREngine`），不再依赖外部视觉模型；RapidOCR 不可用时自动降级。
+- **多书源「能力自述」+ 版权红线写进代码**：11 个书源在注册表里逐源标注 `has_fulltext` / `rights` / `needs_proxy` / `blocked`，上层不猜。`has_fulltext=True` **只对 `public-domain` / `user-provided` 放行**，由归一化函数 `_norm()` 强制 —— 商业书即使碰巧有下载链接也会被降级为「无全文」，取全文接口直接拒绝并说明原因。失败隔离**下沉到每个源**（`_safe_fetch`），任一源超时只算 0 条；但 `_http_json` / `_http_text` 改为**抛 `FetchError`**（原先 `return None` 会让 `_safe_fetch` 什么都捕获不到，把网络故障记成「ok，0 结果」，界面上「源全挂」与「没这本书」分不开）。
+- **读书按需建项目（惰性 ensure）**：加入书架、同步书架、拉划线**都不建项目**，只写 `reading_books`；只有真要往里放资料时才 `ReadingStore.ensure_project()` → `create_book_project()`（本地导入 / 取回正文 / 沉淀卡片）。否则微信读书同步一次几百本 = 几百个空项目把侧栏塞满。书一旦有项目，就继承框架 / 卡片 / 测验 / 掌握度 / 撤销 / 导出整条链路。**只读路径全部降级为空而不报错**（`outline` / `cards` / `ask` / `intro` 在无项目时都给空态，不抛 `project_not_found`）。
+- **跨书网络只建图、不建树**：原子化 + 概念导向 + 密集链接，**偏好关联式本体而非层级分类**；学科只是节点上的标签，「哪些概念该在一起」由图自己长出来。图里最值钱的是**割点（桥）**——去掉它连通分量会变多，也就是「同时被两本书支持、又是两个领域唯一接口」的概念。**合并必须用户确认**：合并错了 = 假连接，之后所有跨书洞见都建立在假连接上，**比没有网更糟**（`candidate_pairs` 只给候选，必带 `needs_confirmation`）。方法论生成**只喂一个簇**（子图社区摘要比喂整张图准确得多），前端**刻意不上力导向**（每次刷新位置都变会毁掉空间记忆，「桥在两个环之间」才是要一眼看到的）。
+- **神经图谱：一套 token 供两处用，回退只删两行**：`--nv-*` 变量上提到 `:root`（浅色覆盖在 `html[data-theme="light"]`），沉浸层与页面内皮肤（学习概览 / 我的笔记）**共用同一套**、深浅自动跟随主题，而不是复制一份样式；皮肤选择器一律带 `html[data-theme]`，否则压不过 app 自己的 `html[data-theme="dark"] .overview-panel`。浅色模式**单独适配**而非反色（浅底上光球不能靠辉光，改描边 + 投影；香槟金压深到 `#a9822a`；Canvas 关掉加色合成）。浮层挂在 `body` 上会触发 `app.js` 的 `collapseStudio()`，所以在本层根节点**冒泡阶段截住指针 / 点击 / 键盘事件**、`Esc` 另在 window 捕获阶段 `stopImmediatePropagation()`。入口按钮由脚本注入 `.graph-toolbar`（`MutationObserver` 跟随重渲染），新脚本排在 `app.js` 之后直接读它的顶层 `state` —— **`app.js` 一行不改，删掉 `index.html` 两行即完全回退**。
 
 ---
 
