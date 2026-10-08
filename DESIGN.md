@@ -91,7 +91,7 @@
 | `core/reading_digest.py` | 1487 | 读书收获：三级分类（纯规则 `guess_category`，不依赖模型）/ 每书简介 / 逐章收获；逐字段校验 + 本地兜底（兜底走宽松门槛 `_dict_list(strict=False)`）+ Markdown 渲染；`READING_ASK_SYSTEM` 定义陪读讨论口径 |
 | `core/knowledge_net.py` | 1306 | 跨书知识网络：纯函数引擎（`similarity` / `candidate_pairs` / `build_graph` / `clusters` / `find_hubs` / **`find_bridges` 割点** / `cross_support` / `build_methodology_payload` / `build_skill_cards`）+ `NetStore` 四表 + `analyze()` 一次算全（nodes / edges / clusters / hubs / bridges / support / summary） |
 
-前端相关脚本位于 `tools/`（端到端冒烟测试、UI 探针与图谱增长预览），不进入运行时包；回归测试为 `tools/verify_*.py`，CI 门禁为 `src/tools/ci_gate.py`。
+前端相关脚本位于 `tools/`（端到端冒烟测试与图谱增长预览），不进入运行时包、也不随仓库分发；CI 门禁为 `src/tools/ci_gate.py`。
 
 ---
 

@@ -40,17 +40,18 @@ Required Notice: Copyright (c) 2026 KnowOrigin 项目组
 | `PyMuPDF` | AGPL-3.0 / Artifex 商业双许可 | 可用 `.env` 关闭 MinerU 仅走 pdfplumber 通道 |
 | 其余（FastAPI / RapidOCR / pdfplumber / trafilatura 等） | MIT / BSD / Apache-2.0 | 见 README 表格 |
 
-### 2.1 第三方参考快照：`neural-creator-dashboard`
+### 2.1 设计借鉴来源：`neural-creator-dashboard`（未随仓库分发）
 
-- 位置：`third_party/neural-creator-dashboard/`（**只读参考，不参与构建与运行**）。
 - 上游：https://github.com/luoluo-121/neural-creator-dashboard
 - 上游许可：**PolyForm Noncommercial 1.0.0**。
 - **Required Notice: Copyright (c) 2026 luoluo-121 and neural-creator-dashboard contributors**
-- 依上游许可的 *Notices* 条款，已随快照保留其 `LICENSE`、`NOTICE.md`
-  与 `licenses/MIT-legacy.txt` 原文件，未作删改。
-- 用途：借鉴其 UI 设计与交互结构（知源以自身技术栈重写实现）。
-  **未取用其视频素材**（`orb.mp4` / `jellyfish.mp4` 为其识别标志）。
-- 详见 `third_party/neural-creator-dashboard/UPSTREAM.md`。
+- 关系：知源**只借鉴其设计思想**（三层递进交互 / 银灰 + 香槟金配色 / 背景神经网络），
+  并以自身技术栈（原生 JS，零构建）重新实现。
+- **本仓库不包含、也不分发上游的任何代码、样式或素材文件**
+  —— 因此不触发其许可的 *Notices*（随分发保留许可原文）义务；
+  此处列出仅作来源与致谢说明。
+- **未取用其视频素材**（`orb.mp4` / `jellyfish.mp4` 为其识别标志），
+  知源的光球与神经丝全部由 CSS 渐变 + Canvas 自绘。
 
 ---
 

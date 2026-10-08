@@ -39,9 +39,25 @@ build/
 # Diagnostic / temporary / development scripts (not required to run the app)
 _*.py
 _*.js
+_*.mjs
 _*.txt
 _*.png
+_*.html
 *.bak
+
+# 探针夹具与开发期回归脚本：运行不需要，不进仓库
+tools/_*
+tools/verify_book_sources.py
+tools/verify_knowledge_net.py
+tools/verify_reading_api.py
+tools/verify_reading_digest.py
+tools/verify_reading_store.py
+tools/verify_reading_login_fix.mjs
+tools/verify_study_kit_ask.py
+tools/verify_weread.py
+
+# 借来的参考项目（只做设计借鉴，不随仓库分发）
+third_party/
 
 # Large binary files (not shipped in the repo)
 # 演示视频 518 MB，超出仓库承载，改放 GitLab 包仓库 / Release（见 README 提交物清单）
@@ -121,9 +137,9 @@ plan.md
 smoke_persona.py
 _tools/
 
-# 交接文档：给「下一个动手的 agent」看的施工单，不是运行必需（见 KNOW-README-FIRST.md）
+# 交接文档与调研笔记：不是运行必需（见 KNOW-README-FIRST.md）
 KNOW-README-FIRST.md
-KnowOrigin-HANDOVER-*.md
+KnowOrigin-*.md
 AGENT_HANDOFF.md
 *_HANDOVER*.md
 chk_menu_tmp.mjs
