@@ -1,0 +1,355 @@
+/* 读书（Reading）—— 独立样式层。
+ *
+ * 设计原则（调研所得，别改散）：
+ *   1. 无干扰阅读面：正文之外的一切退到边栏，只在需要时出现；
+ *   2. 封面是主角：大留白、统一 3:4 比例、仅在悬停时轻微抬起；
+ *   3. 高级感来自留白与克制的层级，不靠渐变/阴影堆砌；
+ *   4. 正文衬线、界面无衬线，两者分工明确。
+ *
+ * 全部规则锁在 #reading-workspace 作用域内，并自带 --rd-* 变量 ——
+ * 摘掉 index.html 里那一行 <link> 即完整回退，不影响任何既有布局。
+ * 深色由 html[data-theme="dark"] 驱动（与全站主题开关同源）。
+ */
+
+#reading-workspace {
+  /* 阅读字号倍率。**一处改、全篇跟着变** —— 正文、高亮片段、AI 辅助共用它，
+     用户不必分别去调三处（那正是「字号不可调」最烦人的地方）。 */
+  --rd-scale: 1;
+  --rd-paper: #FAF8F4;
+  --rd-paper-2: #F3EFE8;
+  --rd-paper-3: #EBE6DC;
+  --rd-ink: #1E1C19;
+  --rd-ink-2: #56524A;
+  --rd-ink-3: #8B857A;
+  --rd-line: rgba(30, 28, 25, .10);
+  --rd-line-2: rgba(30, 28, 25, .18);
+  --rd-accent: #8A5A2B;
+  --rd-accent-soft: #F0E4D2;
+  --rd-hl: rgba(214, 168, 84, .30);
+  --rd-hl-line: #D6A854;
+  --rd-ai: #2C5C60;
+  --rd-ai-soft: #E4EEEC;
+  --rd-serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif;
+  --rd-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+
+  display: none;
+  background: var(--rd-paper);
+  color: var(--rd-ink);
+  font-family: var(--rd-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100%;
+  overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+}
+html[data-theme="dark"] #reading-workspace {
+  --rd-paper: #191817;
+  --rd-paper-2: #201F1D;
+  --rd-paper-3: #2A2825;
+  --rd-ink: #EDE8E0;
+  --rd-ink-2: #B4ADA2;
+  --rd-ink-3: #857E74;
+  --rd-line: rgba(237, 232, 224, .12);
+  --rd-line-2: rgba(237, 232, 224, .22);
+  --rd-accent: #D9A96B;
+  --rd-accent-soft: #33291D;
+  --rd-hl: rgba(214, 168, 84, .22);
+  --rd-hl-line: #B98F45;
+  --rd-ai: #7FB3B5;
+  --rd-ai-soft: #1D2B2C;
+}
+#reading-workspace.is-open { display: block; }
+
+/* padding-right 会给抽屉让位（见文末「划词 → AI 陪读讨论」），加个过渡才不跳。 */
+.rd-wrap { max-width: 1320px; margin: 0 auto; padding: 0 34px 80px; transition: padding-right .22s ease; }
+
+/* ---------- 顶栏 ---------- */
+.rd-top {
+  position: sticky; top: 0; z-index: 12;
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 34px;
+  background: color-mix(in srgb, var(--rd-paper) 90%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--rd-line);
+}
+.rd-top h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+.rd-top h1 small { font-size: 11.5px; font-weight: 400; color: var(--rd-ink-3); margin-left: 8px; letter-spacing: .06em; }
+.rd-tabs { display: flex; gap: 2px; margin-left: 8px; padding: 3px; background: var(--rd-paper-2); border-radius: 9px; }
+.rd-tab { padding: 6px 16px; border-radius: 7px; font-size: 13px; color: var(--rd-ink-2); background: none; border: none; cursor: pointer; transition: background .18s ease, color .18s ease; }
+.rd-tab:hover { color: var(--rd-ink); }
+.rd-tab.is-on { background: var(--rd-paper); color: var(--rd-ink); font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
+.rd-top-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.rd-ghost {
+  padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--rd-line-2); background: none; color: var(--rd-ink-2);
+  transition: border-color .16s ease, color .16s ease;
+}
+.rd-ghost:hover { border-color: var(--rd-ink-3); color: var(--rd-ink); }
+.rd-solid {
+  padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  background: var(--rd-ink); border: 1px solid var(--rd-ink); color: var(--rd-paper);
+}
+.rd-solid:disabled { opacity: .5; cursor: default; }
+
+.rd-pane { display: none; }
+.rd-pane.is-on { display: block; }
+
+/* ---------- 书架 ---------- */
+.rd-head { padding: 34px 0 20px; }
+.rd-head h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+.rd-head p { margin: 8px 0 0; color: var(--rd-ink-2); font-size: 13.5px; }
+.rd-stats { display: flex; gap: 26px; margin-top: 18px; padding: 15px 0; border-top: 1px solid var(--rd-line); border-bottom: 1px solid var(--rd-line); }
+.rd-stat b { display: block; font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.rd-stat span { font-size: 12px; color: var(--rd-ink-3); letter-spacing: .04em; }
+
+.rd-group { margin-top: 32px; }
+.rd-group-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 15px; }
+.rd-group-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.rd-group-head span { font-size: 12px; color: var(--rd-ink-3); }
+
+.rd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 26px 20px; }
+.rd-book { cursor: pointer; }
+.rd-cover {
+  position: relative; aspect-ratio: 3 / 4.15; border-radius: 3px 6px 6px 3px; overflow: hidden;
+  background: #2E2A44; box-shadow: 0 1px 2px rgba(0, 0, 0, .14), 0 6px 16px -8px rgba(0, 0, 0, .3);
+  transition: transform .22s cubic-bezier(.2, .7, .3, 1), box-shadow .22s ease;
+}
+.rd-book:hover .rd-cover { transform: translateY(-5px); box-shadow: 0 2px 4px rgba(0, 0, 0, .16), 0 18px 30px -12px rgba(0, 0, 0, .38); }
+.rd-cover::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 7px; background: rgba(0, 0, 0, .22); }
+.rd-cover::after { content: ""; position: absolute; left: 7px; top: 0; bottom: 0; width: 1px; background: rgba(255, 255, 255, .18); }
+.rd-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2; }
+.rd-cover-body { position: absolute; inset: 0; padding: 20px 14px 14px 22px; display: flex; flex-direction: column; color: #fff; z-index: 1; }
+.rd-cover-rule { width: 26px; height: 1px; background: rgba(255, 255, 255, .5); margin-bottom: 11px; }
+.rd-cover-title { font-family: var(--rd-serif); font-size: 16px; font-weight: 600; line-height: 1.4; letter-spacing: .03em; word-break: break-word; }
+.rd-cover-author { margin-top: auto; font-size: 10.5px; opacity: .72; letter-spacing: .05em; }
+.rd-badge { position: absolute; right: 8px; top: 8px; z-index: 3; font-size: 10px; padding: 2px 7px; border-radius: 999px; background: rgba(255, 255, 255, .92); color: #1E1C19; }
+.rd-badge.is-full { background: var(--rd-accent); color: #fff; }
+.rd-bar { height: 2px; border-radius: 2px; background: var(--rd-paper-3); margin-top: 10px; overflow: hidden; }
+.rd-bar i { display: block; height: 100%; background: var(--rd-accent); }
+.rd-book-meta { margin-top: 7px; font-size: 11.5px; color: var(--rd-ink-3); }
+
+/* ---------- 搜索 ---------- */
+.rd-searchbar { display: flex; gap: 8px; margin: 4px 0 6px; }
+.rd-searchbar input {
+  flex: 1; padding: 9px 13px; font-size: 13.5px; border-radius: 9px;
+  border: 1px solid var(--rd-line-2); background: var(--rd-paper-2); color: var(--rd-ink);
+}
+.rd-searchbar input:focus { outline: none; border-color: var(--rd-accent); }
+.rd-src-note { font-size: 12px; color: var(--rd-ink-3); margin: 10px 0 0; line-height: 1.7; }
+.rd-hit { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--rd-line); }
+.rd-hit-cover { width: 46px; height: 62px; flex: none; border-radius: 3px; background: #2E2A44; overflow: hidden; }
+.rd-hit-cover img { width: 100%; height: 100%; object-fit: cover; }
+.rd-hit-main { flex: 1; min-width: 0; }
+.rd-hit-main h4 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.rd-hit-main p { margin: 3px 0 0; font-size: 12.5px; color: var(--rd-ink-2); }
+.rd-hit-src { font-size: 11.5px; color: var(--rd-ink-3); margin-top: 4px; }
+/* 操作区：三个按钮（取正文 / 找链接 / 加入书架）**横排并右对齐**。
+   早先写成一列之后，三个按钮叠加的高度超过整行，最下面那个会被行高截掉
+   —— 截图里「加入书架」是缺一半的。横排 + 自动换行既不会截断，窄屏也不会挤爆。 */
+.rd-hit-act {
+  align-self: center; flex: none;
+  display: flex; flex-direction: row; flex-wrap: wrap;
+  justify-content: flex-end; align-items: center; gap: 6px;
+  max-width: 264px;
+}
+
+/* ---------- 文件链接 ----------
+   一本书常有多个下载/阅读入口（EPUB / AZW3 / 纯文本 / 在线阅读 / 借阅），
+   正文拿不到时这些入口就是全部价值，所以做成一眼可点的胶囊按钮。 */
+.rd-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rd-file {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border: 1px solid var(--rd-line-2); border-radius: 999px;
+  font-size: 11.5px; color: var(--rd-ink-2) !important; text-decoration: none !important;
+  background: var(--rd-paper-2); transition: border-color .15s, color .15s;
+}
+.rd-file:hover { border-color: var(--rd-accent); color: var(--rd-accent) !important; }
+.rd-file i { font-style: normal; font-size: 10.5px; color: var(--rd-ink-3); }
+
+/* ---------- 收获文档 ---------- */
+.rd-doc { max-width: 760px; margin: 0 auto; padding: 34px 0 60px; }
+.rd-doc h2 { font-family: var(--rd-serif); font-size: 26px; font-weight: 600; margin: 0; }
+.rd-doc .byline { color: var(--rd-ink-3); font-size: 13px; margin: 8px 0 0; }
+.rd-doc-body { margin-top: 22px; font-family: var(--rd-serif); font-size: calc(15.5px * var(--rd-scale)); line-height: 1.9; }
+.rd-doc-body h1, .rd-doc-body h2 { font-size: calc(17px * var(--rd-scale)); font-family: var(--rd-sans); font-weight: 600; margin: 30px 0 12px; }
+.rd-doc-body h3 { font-size: calc(14.5px * var(--rd-scale)); font-family: var(--rd-sans); font-weight: 600; margin: 18px 0 8px; }
+.rd-doc-body p { margin: 0 0 1em; }
+.rd-doc-body ul, .rd-doc-body ol { padding-left: 1.4em; margin: 0 0 1em; }
+.rd-doc-body li { margin-bottom: .4em; }
+.rd-doc-body blockquote { margin: 0 0 1em; padding: 10px 0 10px 16px; border-left: 2px solid var(--rd-hl-line); color: var(--rd-ink-2); }
+.rd-doc-body code { font-size: calc(13px * var(--rd-scale)); background: var(--rd-paper-2); padding: 1px 5px; border-radius: 4px; }
+.rd-doc-body strong { font-weight: 600; }
+.rd-cards { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--rd-line); }
+.rd-cards h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--rd-ink-2); }
+.rd-card-row { padding: 10px 12px; border: 1px solid var(--rd-line); border-radius: 9px; margin-bottom: 8px; font-size: 13px; }
+.rd-card-row b { display: block; font-weight: 600; margin-bottom: 3px; }
+.rd-card-row span { color: var(--rd-ink-2); }
+
+.rd-edit {
+  width: 100%; min-height: 260px; margin-top: 18px; padding: 14px;
+  font-family: var(--rd-serif); font-size: calc(14px * var(--rd-scale)); line-height: 1.8;
+  border: 1px solid var(--rd-line-2); border-radius: 10px;
+  background: var(--rd-paper-2); color: var(--rd-ink); resize: vertical;
+}
+
+/* ---------- 精华阅读：按章的原文片段 ---------- */
+.rd-outline { margin-top: 30px; }
+.rd-outline h3 {
+  margin: 0 0 8px; font-size: 15px; font-weight: 600;
+  padding-bottom: 8px; border-bottom: 1px solid var(--rd-line);
+}
+.rd-oc { margin-top: 20px; }
+.rd-oc h4 { margin: 0 0 9px; font-size: calc(14px * var(--rd-scale)); font-weight: 600; color: var(--rd-ink); }
+.rd-oc h4[data-lvl="2"] { padding-left: 14px; font-size: calc(13.5px * var(--rd-scale)); color: var(--rd-ink-2); }
+.rd-oc h4[data-lvl="3"] { padding-left: 28px; font-size: calc(13px * var(--rd-scale)); color: var(--rd-ink-2); }
+
+/* ---------- 正文直改（contenteditable）----------
+   没有「编辑」按钮：点进去就能改。焦点态给一点极淡的底色，
+   让用户知道「现在可以打字」，但不打扰阅读。 */
+.rd-doc-body[contenteditable="true"] { outline: 0; caret-color: var(--rd-accent); padding: 6px 8px; margin: 0 -8px; border-radius: 10px; }
+.rd-doc-body[contenteditable="true"]:focus {
+  background: color-mix(in srgb, var(--rd-paper-2) 60%, transparent);
+}
+
+.rd-empty { padding: 46px 0; text-align: center; color: var(--rd-ink-3); font-size: 13.5px; line-height: 1.9; }
+.rd-empty b { display: block; color: var(--rd-ink-2); font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.rd-loading { padding: 30px 0; color: var(--rd-ink-3); font-size: 13px; }
+
+@media (max-width: 720px) {
+  .rd-wrap { padding: 0 18px 60px; }
+  .rd-top { padding: 12px 18px; gap: 10px; flex-wrap: wrap; }
+  .rd-top h1 small { display: none; }
+  .rd-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 20px 14px; }
+}
+
+/* ---------- 精华阅读里的高亮原文片段 ----------
+   之前漏了这条规则，`.rd-quote` 一直是浏览器默认 blockquote 样式（又斜又挤）。
+   衬线 + 左侧暖色细线 + 引文出处右对齐，是这类「原文摘录」的通用做法。 */
+.rd-quote {
+  margin: 0 0 10px; padding: 10px 0 10px 14px;
+  border-left: 2px solid var(--rd-hl-line);
+  font-family: var(--rd-serif);
+  font-size: calc(15px * var(--rd-scale));
+  line-height: 1.85; color: var(--rd-ink);
+}
+.rd-quote cite {
+  display: block; margin-top: 6px;
+  font-family: var(--rd-sans); font-style: normal;
+  font-size: calc(12px * var(--rd-scale)); color: var(--rd-ink-3);
+}
+
+/* ---------- 划词 → AI 陪读讨论 ----------
+   工具条浮在选区上方（1570），抽屉贴右侧（1560）—— 与全站浮层分档同档：
+   全屏阅读 1500 / 抽屉 1560 / 划词条 1570。取 90 这种「比面板大一点」的值，
+   将来有人再加一层就被踩过去了。 */
+#reading-workspace .rd-selbar {
+  position: fixed; z-index: 1570;
+  display: flex; gap: 4px; padding: 4px; border-radius: 10px;
+  background: var(--rd-paper); border: 1px solid var(--rd-line-2);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, .35);
+}
+/* 自己写了 display 又要用 hidden 切换，必须补这条 —— 作者样式会盖掉 UA 的 [hidden] */
+#reading-workspace .rd-selbar[hidden],
+#reading-workspace .rd-ask[hidden] { display: none !important; }
+#reading-workspace .rd-selbar button {
+  padding: 5px 10px; border-radius: 7px; border: none; cursor: pointer;
+  font-size: 12.5px; background: var(--rd-ink); color: var(--rd-paper);
+}
+
+#reading-workspace .rd-ask {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 1560;
+  width: clamp(330px, 30vw, 420px);
+  display: flex; flex-direction: column;
+  background: var(--rd-paper-2); border-left: 1px solid var(--rd-line-2);
+  box-shadow: -14px 0 34px -20px rgba(0, 0, 0, .45);
+}
+#reading-workspace .rd-ask-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--rd-line);
+}
+#reading-workspace .rd-ask-head b { font-size: 13.5px; font-weight: 600; }
+#reading-workspace .rd-ask-head span { display: block; font-size: 11.5px; color: var(--rd-ink-2); margin-top: 2px; }
+#reading-workspace .rd-ask-x {
+  margin-left: auto; border: none; background: none; cursor: pointer;
+  font-size: 14px; color: var(--rd-ink-3); padding: 2px 4px;
+}
+#reading-workspace .rd-ask-x:hover { color: var(--rd-ink); }
+#reading-workspace .rd-ask-quote {
+  flex: 0 0 auto; max-height: 108px; overflow-y: auto;
+  margin: 12px 16px 0; padding: 8px 0 8px 12px;
+  border-left: 2px solid var(--rd-hl-line);
+  font-family: var(--rd-serif); font-size: 13px; line-height: 1.8; color: var(--rd-ink-2);
+}
+#reading-workspace .rd-ask-msgs {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;   /* min-height:0 —— 少了它 flex 子项撑开、滚动失效 */
+  padding: 14px 16px; overscroll-behavior: contain;
+}
+#reading-workspace .rd-ask-msg { margin-bottom: 14px; }
+#reading-workspace .rd-ask-q {
+  margin-left: 18%; margin-bottom: 6px; padding: 7px 11px; border-radius: 10px 10px 2px 10px;
+  background: var(--rd-paper); border: 1px solid var(--rd-line);
+  font-size: 13px; color: var(--rd-ink);
+}
+#reading-workspace .rd-ask-a {
+  padding: 10px 12px; border-radius: 2px 10px 10px 10px;
+  background: var(--rd-ai-soft); color: var(--rd-ink);
+  font-size: 13px; line-height: 1.75;
+}
+#reading-workspace .rd-ask-a.is-wait { color: var(--rd-ink-2); }
+#reading-workspace .rd-ask-a p { margin: 0 0 .6em; }
+#reading-workspace .rd-ask-a p:last-child { margin-bottom: 0; }
+#reading-workspace .rd-ask-a ul, #reading-workspace .rd-ask-a ol { padding-left: 1.3em; margin: 0 0 .6em; }
+#reading-workspace .rd-ask-a blockquote {
+  margin: .5em 0; padding: 4px 0 4px 10px; border-left: 2px solid var(--rd-hl-line); color: var(--rd-ink-2);
+}
+#reading-workspace .rd-ask-a code { font-size: 12.5px; background: var(--rd-paper); padding: 1px 4px; border-radius: 4px; }
+#reading-workspace .rd-ask-err {
+  padding: 9px 12px; border-radius: 9px; font-size: 12.5px; color: var(--rd-ink-2);
+  background: var(--rd-paper); border: 1px solid var(--rd-line-2);
+}
+#reading-workspace .rd-ask-chips { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; }
+#reading-workspace .rd-ask-chip {
+  padding: 5px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--rd-line-2); background: none; color: var(--rd-ink-2); font-size: 12px;
+}
+#reading-workspace .rd-ask-chip:hover { border-color: var(--rd-accent); color: var(--rd-accent); }
+#reading-workspace .rd-ask-foot { flex: 0 0 auto; display: flex; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--rd-line); }
+#reading-workspace .rd-ask-foot input {
+  flex: 1; min-width: 0; padding: 8px 11px; border-radius: 9px;
+  border: 1px solid var(--rd-line-2); background: var(--rd-paper); color: var(--rd-ink); font-size: 13px;
+}
+#reading-workspace .rd-ask-foot input:focus { outline: none; border-color: var(--rd-accent); }
+#reading-workspace .rd-ask-note { flex: 0 0 auto; margin: 0 16px 12px; font-size: 11.5px; line-height: 1.6; color: var(--rd-ink-2); }
+
+@media (max-width: 720px) {
+  #reading-workspace .rd-ask { width: 100%; }
+}
+
+/* 抽屉是覆盖式的，正文会被它压掉一块 —— 开着的时候把阅读区右侧让出来，
+   于是正文整体左移而不是被盖住（窄屏抽屉铺满，让了也没用，就不让）。 */
+body.rd-ask-open #reading-workspace .rd-wrap {
+  padding-right: calc(34px + clamp(330px, 30vw, 420px));
+}
+@media (max-width: 720px) {
+  body.rd-ask-open #reading-workspace .rd-wrap { padding-right: 34px; }
+}
+
+/* 主界面的提问导轨是 body 上的固定元素（z-index 8000），压在抽屉之上 ——
+   抽屉开着的时候藏掉它，关掉必须摘（摘不掉等于把导轨永久藏了）。 */
+body.rd-ask-open .question-rail { display: none; }
+
+/* ---------- 阅读字号控件 ---------- */
+.rd-fontctl {
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--rd-paper-2); border-radius: 9px;
+}
+.rd-fontctl button {
+  min-width: 34px; padding: 5px 8px; border-radius: 7px; border: none; cursor: pointer;
+  background: none; color: var(--rd-ink-2); font-size: 12px; font-family: var(--rd-sans);
+  transition: background .16s ease, color .16s ease;
+}
+.rd-fontctl button:hover { color: var(--rd-ink); }
+.rd-fontctl button.is-on {
+  background: var(--rd-paper); color: var(--rd-ink); font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+}

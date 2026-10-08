@@ -23,13 +23,27 @@
   const EXPANDED_KEY = "knoworigin-agent-expanded-projects-v1";      // { [projectId]: true|false }
 
   const MODULE_LABELS = { english: "英语词汇" };
-  const MODULE_OPENERS = { english: () => window.enVocabOpenView?.() };
+  const MODULE_OPENERS = {
+    english: () => window.enVocabOpenView?.(),
+    // 读书：能力由 static/reading.js 提供（window.KnowOriginReading），那一行脚本删掉即回退。
+    reading: () => window.KnowOriginReading?.open?.(),
+  };
 
   // 项目行右侧的「文档」图标（打开该项目的知识文档 = 合订稿全文）。
   const DOC_ICON =
     '<svg viewBox="0 0 24 24" aria-hidden="true">' +
     '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>' +
     '<path d="M14 3v5h5"></path><path d="M9 13h6"></path><path d="M9 17h4"></path></svg>';
+
+  // 项目行右侧的「学习文档」图标（把一页速查表 / 学习路径 / 清单报告合成一份长文）。
+  // 刻意画成「一本书」而不是「一张纸」——与左边的知识文档图标一眼分得开。
+  // 能力由 static/study-doc-ui.js 提供（window.KnowOriginStudyDoc），那一行脚本删掉即回退。
+  const STUDY_DOC_ICON =
+    '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19a1 1 0 0 1 1 1v13.5"></path>' +
+    '<path d="M4 5.5v12A2.5 2.5 0 0 0 6.5 20H20"></path>' +
+    '<path d="M6.5 17H20"></path>' +
+    '<path d="M8 8h8"></path><path d="M8 11.5h5"></path></svg>';
 
   // 每个项目的会话清单缓存：树里可以同时展开多个项目，state.chatSessions 只装得下当前项目。
   const sessionsCache = {};
@@ -166,6 +180,8 @@
             <span class="agent-project-caret" data-agent-project-toggle="${escapeAttr(projectId)}"
                   role="button" aria-label="${open ? "收起" : "展开"}项目" title="${open ? "收起" : "展开"}">${open ? "▾" : "▸"}</span>
             <span class="agent-project-name">${escapeHtml(label)}</span>
+            <span class="agent-project-study" data-agent-project-study="${escapeAttr(projectId)}"
+                  role="button" aria-label="学习文档" title="打开学习文档（一页速查表 + 学习路径 + 清单报告）">${STUDY_DOC_ICON}</span>
             <span class="agent-project-doc" data-agent-project-doc="${escapeAttr(projectId)}"
                   role="button" aria-label="知识文档" title="打开知识文档">${DOC_ICON}</span>
           </button>
@@ -665,6 +681,21 @@
         event.stopPropagation();
         toggleExpanded(toggleBtn.dataset.agentProjectToggle);
         renderSidebar();
+        return;
+      }
+      const studyDocBtn = event.target.closest("[data-agent-project-study]");
+      if (studyDocBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        // 同上：只读那一份文档，不切换项目
+        const bridge = window.KnowOriginStudyDoc;
+        if (!bridge || typeof bridge.open !== "function") {
+          showToast("学习文档模块没加载（static/study-doc-ui.js），刷新页面后再试。", "error");
+          return;
+        }
+        const row = studyDocBtn.closest(".agent-project-row");
+        const name = row?.querySelector(".agent-project-name")?.textContent?.trim() || "";
+        bridge.open(studyDocBtn.dataset.agentProjectStudy, name);
         return;
       }
       const docBtn = event.target.closest("[data-agent-project-doc]");

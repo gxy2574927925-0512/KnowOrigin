@@ -1,0 +1,294 @@
+[
+ {
+  "node_id": "acousto_optic_mod",
+  "parent_id": "ch1_modulation",
+  "name": "声光调制原理",
+  "description": "利用声光效应实现调制。需掌握Raman-Nath衍射与Bragg衍射的条件及光强分布特点，理解其与电光调制的异同。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "acousto_optic_q",
+  "parent_id": "ch2_q_switch",
+  "name": "声光调Q技术",
+  "description": "利用布拉格衍射实现快速开关。特点为驱动电压低、易获高重复频率，适用于增益较低的连续泵浦激光器。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "电光调Q技术",
+   "声光调制原理"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "active_mode_locking",
+  "parent_id": "ch3_mode_locking",
+  "name": "主动锁模技术",
+  "description": "利用外加调制器（振幅或相位）对腔内光场进行周期性调制，调制频率需等于纵模间隔。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "被动锁模技术",
+   "锁模基本原理"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "amplifier_design",
+  "parent_id": "ch4_amplification",
+  "name": "激光放大器设计考虑",
+  "description": "设计放大器需考虑增益介质、泵浦方式、热管理及脉冲选取。需掌握震荡级、放大级及延时同步装置的组成。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "beam_quality",
+  "parent_id": "ch5_system_design",
+  "name": "激光光束质量评价",
+  "description": "评价光束质量的核心参数为M2因子（衍射极限倍数）。需掌握远场发散角测量及M2因子对光束变换的影响。",
+  "mastery_score": 0.09,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "ch1_modulation",
+  "parent_id": "root",
+  "name": "激光调制与偏转技术",
+  "description": "介绍激光束的调制原理，包括电光调制、声光调制、相位调制及激光偏转技术，是光电子系统控制的基础。",
+  "mastery_score": 0.066,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "调Q (Q开关)技术",
+   "锁模技术"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "ch2_q_switch",
+  "parent_id": "root",
+  "name": "调Q (Q开关)技术",
+  "description": "通过控制谐振腔损耗来压缩脉冲宽度、提高峰值功率的核心技术。是考试重点，需掌握基本原理、速率方程分析及各类Q开关。",
+  "mastery_score": 0.0,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "调Q基本原理与Q值",
+   "调Q工作过程与速率方程",
+   "被动可饱和吸收调Q",
+   "锁模技术"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "ch3_mode_locking",
+  "parent_id": "root",
+  "name": "锁模技术",
+  "description": "通过锁定纵模相位差产生超短脉冲的技术。需掌握锁模原理、主动/被动锁模机制及脉冲参数计算。",
+  "mastery_score": 0.0,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "锁模基本原理"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "ch4_amplification",
+  "parent_id": "root",
+  "name": "激光放大技术",
+  "description": "提高激光能量和功率的技术。包括脉冲激光放大器理论、双程/多程放大及再生放大技术。",
+  "mastery_score": 0.0,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "激光调制与偏转技术",
+   "调Q (Q开关)技术",
+   "锁模技术"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "ch5_system_design",
+  "parent_id": "root",
+  "name": "光电系统工程思维",
+  "description": "系统总体设计思维，包括需求分析、方案建模、接口设计及可靠性考虑。结合典型应用（如水下通信、激光焊接）进行综合。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "激光放大技术",
+   "激光调制与偏转技术",
+   "调Q (Q开关)技术",
+   "锁模技术"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "electro_optic_mod",
+  "parent_id": "ch1_modulation",
+  "name": "电光调制原理",
+  "description": "利用晶体的电光效应和偏振光干涉原理，使光强随外加电压变化。分为纵向和横向应用，需掌握装置图与基本工作原理。",
+  "mastery_score": 0.12125,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "electro_optic_q",
+  "parent_id": "ch2_q_switch",
+  "name": "电光调Q技术",
+  "description": "利用电光晶体加阶跃电压改变Q值。分为退压式和加压式，需掌握装置图、工作过程及脉冲透射式调Q特点。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "电光调制原理"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "laser_design_factors",
+  "parent_id": "ch5_system_design",
+  "name": "激光器设计综合因素",
+  "description": "设计激光器需综合考虑光学、机械、电气及热管理。关注光束质量、效率、稳定性及智能化补偿。",
+  "mastery_score": 0.05525,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "mode_locking_principle",
+  "parent_id": "ch3_mode_locking",
+  "name": "锁模基本原理",
+  "description": "使谐振腔内多个纵模相位同步，时域上形成周期性超短脉冲，频域上表现为等间距谱线。",
+  "mastery_score": 0.045899999999999996,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "passive_mode_locking",
+  "parent_id": "ch3_mode_locking",
+  "name": "被动锁模技术",
+  "description": "利用可饱和吸收体实现锁模。需理解其与被动调Q的异同（脉宽不同），以及锁模激光器的设计要求。",
+  "mastery_score": 0.03825,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "锁模基本原理"
+  ],
+  "order": 0
+ },
+ {
+  "node_id": "passive_q_switch",
+  "parent_id": "ch2_q_switch",
+  "name": "被动可饱和吸收调Q",
+  "description": "利用染料等可饱和吸收体自动实现开关。具有选模作用，但同步精度差。需掌握染料选择标准及浓度、能量影响。",
+  "mastery_score": 0.03825,
+  "learning_status": "encountered",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "q_switch_basic",
+  "parent_id": "ch2_q_switch",
+  "name": "调Q基本原理与Q值",
+  "description": "Q值为谐振腔品质因数，描述储能与损耗之比。调Q目的是压缩脉宽（至ns级）并提高峰值功率（可达GW级）。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "q_switch_process",
+  "parent_id": "ch2_q_switch",
+  "name": "调Q工作过程与速率方程",
+  "description": "分为两阶段：第一阶段高损耗下粒子数反转积累储能；第二阶段低损耗下光子数激增输出激光。需掌握速率方程分析。",
+  "mastery_score": 0.0,
+  "learning_status": "unexplored",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [],
+  "order": 0
+ },
+ {
+  "node_id": "root",
+  "parent_id": null,
+  "name": "光电子技术",
+  "description": "光电子技术课程核心知识框架，涵盖激光调制、调Q技术、锁模技术、激光放大及光电系统设计思维。",
+  "mastery_score": 0.0,
+  "learning_status": "pending_confirmation",
+  "coverage_status": "covered",
+  "note_content": "",
+  "tags": [],
+  "wikilinks": [
+   "调Q (Q开关)技术",
+   "锁模技术",
+   "激光放大技术",
+   "激光调制与偏转技术",
+   "声光调Q技术",
+   "电光调Q技术",
+   "被动可饱和吸收调Q",
+   "主动锁模技术",
+   "被动锁模技术",
+   "调Q基本原理与Q值",
+   "调Q工作过程与速率方程",
+   "锁模基本原理",
+   "声光调制原理",
+   "电光调制原理",
+   "光电系统工程思维"
+  ],
+  "order": 0
+ }
+]

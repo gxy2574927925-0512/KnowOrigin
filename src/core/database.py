@@ -791,6 +791,48 @@ class Database:
             else:
                 conn.execute("DELETE FROM projects WHERE project_id = ? AND owner_id = ?", (project_id, owner_id))
 
+    # ---- 读书（Reading）----
+
+    def create_book_project(self, owner_id: str, title: str) -> Project:
+        """为一本书建一个项目。
+
+        与 ``create_literature`` 同构 —— **读书也是「一个项目」**，只是 ``project_type``
+        不同。这样它天然继承了知源已有的整条链路：知识框架、卡片、测验、掌握度、
+        撤销、收藏、导出，一行都不用重写。
+
+        **按需创建** —— 加入书架时不建，只有真要往里放资料时（导入 / 取回正文、
+        生成收获沉淀卡片）才建；否则每加一本书侧栏就多一个空项目。
+        """
+        self.get_user(owner_id)
+        now = utc_now()
+        project = Project(
+            project_id=new_id("book"),
+            owner_id=owner_id,
+            year="",
+            subject=title,
+            project_type="book",
+            tags=[],
+            last_position=0.0,
+            last_opened_at=None,
+            total_reading_seconds=0,
+            created_at=now,
+        )
+        with self.transaction() as conn:
+            conn.execute(
+                "INSERT INTO projects(project_id, owner_id, year, subject, project_type, tags, "
+                "last_position, total_reading_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (project.project_id, owner_id, "", title, "book", "[]", 0.0, 0, now.isoformat()),
+            )
+        return project
+
+    def list_book_projects(self, owner_id: str) -> list[Project]:
+        rows = self._conn.execute(
+            "SELECT * FROM projects WHERE owner_id = ? AND project_type = 'book' "
+            "ORDER BY last_opened_at DESC NULLS LAST, created_at DESC",
+            (owner_id,),
+        ).fetchall()
+        return [self._project_from_row(row) for row in rows]
+
     # ---- 文献精读（Literature）----
 
     def create_literature(self, owner_id: str, title: str) -> Project:

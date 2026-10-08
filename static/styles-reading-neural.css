@@ -1,0 +1,176 @@
+/* 读书 · 神经图谱（Reading Neural View）—— 只放**这一层独有**的样式。
+ * ------------------------------------------------------------------
+ * 外壳（顶栏 / 舞台 / 光球 / 模块 / 侧栏 / 坞 / 深浅主题）全部复用
+ * `styles-neural.css` 的 `.ko-nv-layer` 作用域，本文件一行都不重抄。
+ * 这里只补三样它没有的东西：
+ *   1. 放射节点（概念点 + 名字）—— 知识框架那边是「一行一条」，这边是图，要 2D 摆；
+ *   2. 类型化边（6 种 kind 各自的线型，对立单独一色）；
+ *   3. 边型图例、概念卡里的「关联概念」分组、领域标签上的桥徽标。
+ *
+ * 回退：删掉 index.html 里这一行 <link> 与 rd-neural-view.js 那一行 <script>，
+ * 即完全回到「知识网络」页签原来的 SVG 圆环图。本文件不覆盖任何既有类。
+ *
+ * 配色纪律（沿用 neural-creator-dashboard 那条：高级感来自克制）：
+ *   整层只有一个强调色（香槟金 = 桥），外加一个语义色（红 = 两本书说法冲突）。
+ *   其余关系一律中性银灰，靠**线型**区分 —— 不是靠颜色多。
+ */
+
+/* ==================================================================
+ * 1) 放射节点：概念点 + 名字（module 层）
+ * ------------------------------------------------------------------
+ * ⚠️ 按钮本身必须有**真实尺寸**（26×26，再用负 margin 把中心对到锚点上）。
+ * 曾经写成 width:0/height:0 —— 视觉上靠绝对定位的子元素撑开，看着是对的，
+ * 但 0×0 的元素在浏览器眼里「不可见」，点击命中率与自动化都会挂（探针实测）。
+ * ================================================================== */
+#ko-rn-overlay .ko-nv-node {
+  position: absolute; left: 0; top: 0; width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  padding: 0; border: 0; background: none; color: var(--nv-text);
+  will-change: transform, opacity;
+}
+#ko-rn-overlay .ko-nv-node-dot {
+  position: absolute; inset: 5px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, rgba(255, 255, 255, .95) 0%, var(--nv-kc, #c9d6e0) 52%, rgba(0, 0, 0, .3) 100%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nv-kc, #c9d6e0) 20%, transparent), 0 0 16px var(--nv-kc, #c9d6e0);
+  transition: transform .22s, box-shadow .3s;
+}
+#ko-rn-overlay .ko-nv-node:hover .ko-nv-node-dot,
+#ko-rn-overlay .ko-nv-node.is-active .ko-nv-node-dot {
+  transform: scale(1.4);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nv-kc, #c9d6e0) 28%, transparent), 0 0 26px var(--nv-kc, #c9d6e0);
+}
+/* 桥：整层唯一的强调色。去掉它这张网就断成两半，所以它在视觉上必须压过所有普通概念。 */
+#ko-rn-overlay .ko-nv-node.is-bridge .ko-nv-node-dot {
+  inset: 3px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nv-gold) 34%, transparent), 0 0 28px var(--nv-gold);
+}
+#ko-rn-overlay .ko-nv-node-label {
+  position: absolute; left: 50%; top: calc(100% + 1px); transform: translateX(-50%);
+  max-width: 132px; padding: 2px 8px; border-radius: 8px;
+  font-size: 11px; line-height: 1.35; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--nv-glass); border: 1px solid var(--nv-line);
+  pointer-events: none;
+}
+/* 上半环的节点把名字放到点的上方 —— 否则密集时相邻标签会叠在一起 */
+#ko-rn-overlay .ko-nv-node[data-side="up"] .ko-nv-node-label { top: auto; bottom: calc(100% + 1px); }
+#ko-rn-overlay .ko-nv-node.is-active .ko-nv-node-label {
+  border-color: color-mix(in srgb, var(--nv-gold) 55%, transparent);
+  color: var(--nv-text);
+}
+#ko-rn-overlay .ko-nv-node-badge {
+  position: absolute; left: calc(100% - 3px); top: 50%; transform: translateY(-50%);
+  padding: 1px 7px; border-radius: 999px;
+  font-size: 9.5px; line-height: 1.5; white-space: nowrap; color: var(--nv-gold);
+  border: 1px solid color-mix(in srgb, var(--nv-gold) 45%, transparent);
+  background: color-mix(in srgb, var(--nv-gold) 14%, transparent);
+  pointer-events: none;
+}
+/* 孤证：只在一本书里出现过，不该跟交叉验证过的概念长得一样 */
+#ko-rn-overlay .ko-nv-node.is-stub .ko-nv-node-dot { filter: saturate(.35) brightness(.8); }
+#ko-rn-overlay .ko-nv-node.is-stub .ko-nv-node-label { color: var(--nv-muted); }
+
+/* ==================================================================
+ * 2) 类型化边：中性银灰 + 线型区分，只有「对立」单独一色
+ * ================================================================== */
+#ko-rn-overlay .ko-nv-arc {
+  fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round;
+  transition: stroke-width .25s, opacity .25s;
+}
+#ko-rn-overlay .ko-nv-arc.is-dashed { stroke-dasharray: 6 4; }
+#ko-rn-overlay .ko-nv-arc.is-dotted { stroke-dasharray: 2 4; }
+#ko-rn-overlay .ko-nv-arc.is-dashdot { stroke-dasharray: 9 3 2 3; }
+/* 两本书说法冲突：必须显式呈现，不要和稀泥 —— 所以它值得占掉第二个颜色名额 */
+#ko-rn-overlay .ko-nv-arc.is-contrast { color: #ff9aa2; stroke-width: 1.6; }
+html[data-theme="light"] #ko-rn-overlay .ko-nv-arc.is-contrast { color: #b23b3b; }
+#ko-rn-overlay .ko-nv-arc.is-bridge { color: var(--nv-gold); stroke-width: 1.8; }
+
+/* ==================================================================
+ * 3) 边型图例（hub 层左下角）
+ * ================================================================== */
+#ko-rn-overlay .ko-nv-legend {
+  position: absolute; left: 34px; bottom: 18px; z-index: 5;
+  display: grid; gap: 7px; padding: 12px 15px; border-radius: 14px;
+  border: 1px solid var(--nv-line); background: var(--nv-glass);
+  animation: ko-nv-fade .6s .45s both;
+}
+#ko-rn-overlay .ko-nv-legend[hidden] { display: none; }
+#ko-rn-overlay .ko-nv-legend h5 {
+  margin: 0 0 1px; font-size: 10.5px; font-weight: 600; letter-spacing: .14em;
+  color: var(--nv-muted); text-transform: uppercase;
+}
+#ko-rn-overlay .ko-nv-legend-row { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--nv-text-2); }
+#ko-rn-overlay .ko-nv-legend-row i {
+  flex: none; width: 30px; height: 0; border-top: 1.6px solid currentColor;
+}
+#ko-rn-overlay .ko-nv-legend-row.is-dashed i { border-top-style: dashed; }
+#ko-rn-overlay .ko-nv-legend-row.is-dotted i { border-top-style: dotted; }
+#ko-rn-overlay .ko-nv-legend-row.is-dashdot i { border-top-style: dashed; }
+#ko-rn-overlay .ko-nv-legend-row.is-gold { color: var(--nv-gold); }
+#ko-rn-overlay .ko-nv-legend-row.is-contrast { color: #ff9aa2; }
+html[data-theme="light"] #ko-rn-overlay .ko-nv-legend-row.is-contrast { color: #b23b3b; }
+#ko-rn-overlay .ko-nv-legend-row b { color: var(--nv-text); font-weight: 500; }
+#ko-rn-overlay .ko-nv-legend-row small { color: var(--nv-muted); font-size: 10.5px; }
+
+/* ==================================================================
+ * 4) 领域标签上的桥徽标
+ * ================================================================== */
+#ko-rn-overlay .ko-nv-mod-bridge {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
+  padding: 1px 6px; border-radius: 999px; font-size: 9.5px; color: var(--nv-gold);
+  border: 1px solid color-mix(in srgb, var(--nv-gold) 45%, transparent);
+  background: color-mix(in srgb, var(--nv-gold) 14%, transparent);
+}
+#ko-rn-overlay .ko-nv-mod-label.is-column .ko-nv-mod-bridge { display: none; }
+/* 「未连接」这个合成模块要明显退到后面 —— 它不是图自己长出来的结构 */
+#ko-rn-overlay .ko-nv-mod-label.is-loose { border-style: dashed; }
+#ko-rn-overlay .ko-nv-mod-label.is-loose .ko-nv-mod-name { color: var(--nv-text-2); }
+
+/* ==================================================================
+ * 5) 概念卡里的「关联概念」：按边型分组
+ * ================================================================== */
+#ko-rn-overlay .ko-nv-edge-group { margin-top: 12px; }
+#ko-rn-overlay .ko-nv-edge-group > header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 7px;
+  font-size: 11.5px; color: var(--nv-text-2);
+}
+#ko-rn-overlay .ko-nv-edge-group > header i {
+  flex: none; width: 24px; height: 0; border-top: 1.6px solid currentColor;
+}
+#ko-rn-overlay .ko-nv-edge-group.is-dashed > header i { border-top-style: dashed; }
+#ko-rn-overlay .ko-nv-edge-group.is-dotted > header i { border-top-style: dotted; }
+#ko-rn-overlay .ko-nv-edge-group.is-dashdot > header i { border-top-style: dashed; }
+#ko-rn-overlay .ko-nv-edge-group > header b { color: var(--nv-text); font-weight: 500; }
+#ko-rn-overlay .ko-nv-edge-group > header small { margin-left: auto; color: var(--nv-muted); font-size: 10.5px; }
+#ko-rn-overlay .ko-nv-edge-group.is-contrast > header { color: #ff9aa2; }
+html[data-theme="light"] #ko-rn-overlay .ko-nv-edge-group.is-contrast > header { color: #b23b3b; }
+#ko-rn-overlay .ko-nv-edge-group.is-bridge > header { color: var(--nv-gold); }
+#ko-rn-overlay .ko-nv-edge-note { margin: 0 0 7px; font-size: 11px; color: var(--nv-muted); }
+/* 来源书单：只读的小胶囊，不占满一行 */
+#ko-rn-overlay .ko-nv-books { display: flex; flex-wrap: wrap; gap: 6px; }
+#ko-rn-overlay .ko-nv-book {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 3px 9px;
+  border-radius: 8px; border: 1px solid var(--nv-line); background: rgba(255, 255, 255, .04);
+  font-size: 11.5px; color: var(--nv-text-2);
+}
+html[data-theme="light"] #ko-rn-overlay .ko-nv-book { background: rgba(45, 42, 38, .05); }
+#ko-rn-overlay .ko-nv-book span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+#ko-rn-overlay .ko-nv-book.is-only { border-color: color-mix(in srgb, #ff9aa2 40%, transparent); }
+
+/* ==================================================================
+ * 6) 「知识网络」页签里的入口按钮（由 rd-neural-view.js 注入，不改 reading.js）
+ * ================================================================== */
+.rd-neural-open-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 16px; padding: 8px 16px; border-radius: 999px;
+  font-family: var(--rd-sans); font-size: 13px; cursor: pointer;
+  color: var(--rd-ink); background: var(--rd-paper-2);
+  border: 1px solid var(--rd-line-2);
+  transition: border-color .2s, background .2s;
+}
+.rd-neural-open-btn::before {
+  content: ""; width: 10px; height: 10px; border-radius: 50%;
+  background: radial-gradient(circle at 36% 32%, #fff, #cfd3d4 45%, #6f7370);
+  box-shadow: 0 0 9px rgba(212, 168, 67, .65);
+}
+.rd-neural-open-btn:hover { border-color: var(--rd-accent); background: var(--rd-accent-soft); }
+.rd-neural-open-btn small { color: var(--rd-ink-3); font-size: 11.5px; }

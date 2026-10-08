@@ -1,0 +1,642 @@
+/* 神经图谱（Neural View）· 沉浸式知识图谱
+ * ------------------------------------------------------------------
+ * 设计语言借鉴 neural-creator-dashboard（PolyForm NC，见 third_party/），
+ * 用知源自己的技术栈重写：中性深灰底 + 银灰 + 香槟金点缀。
+ *
+ * 回退：删掉 index.html 里的一行 <link> 与一行 <script> 即完全回退，
+ * 不改 app.js、不改 styles.css。全部规则锁在 .ko-nv-layer 作用域内。
+ *
+ * ⚠️ 根选择器是**类** `.ko-nv-layer`，不是 id `#ko-nv-overlay` —— 这样
+ * `rd-neural-view.js`（读书的神经图谱）挂同一个类就能复用整套材质，
+ * 不必把 54 条规则抄第二遍。两个浮层共用 `body.ko-nv-open`（都锁滚动、都收桌宠）。
+ * 本表在 index.html 里**最后加载**，所以从 id 降到类之后，同权重冲突仍归本表赢。
+ *
+ * 刻意的取舍（别推翻）：
+ * 1. 深色是本层的**默认与主场**（全屏图谱场景用深底才压得住发光球体与光点），
+ *    但**跟随知源主题**：`html[data-theme="light"]` 下整套材质换成暖纸底（见文件末尾），
+ *    浅色下球体靠描边 + 投影立起来，不用加色辉光（白底上越加越白）。
+ * 2. 不引任何外部素材：光球、水母、光点全部用 CSS 渐变 + Canvas 自绘，
+ *    不使用上游的 orb.mp4 / jellyfish.mp4（那是它的识别标志）。
+ * 3. 动效一律可被 prefers-reduced-motion 关掉。
+ * 4. Markdown 正文由 app.js 的渲染器产出（`.study-*` 类，按浅色纸面写的），
+ *    深色下必须逐类压回来 —— 见文件末尾第 1 节。
+ */
+
+/* 神经视觉的 token 定义在 :root —— 沉浸层（.ko-nv-layer）与页面内的「神经皮肤」
+   （见文件末尾第 3 节）共用同一套，深浅两套自动跟随 html[data-theme]。 */
+:root {
+  --nv-bg: #0d0e0e;
+  --nv-bg-2: #141515;
+  --nv-line: rgba(228, 228, 222, .11);
+  --nv-line-2: rgba(232, 232, 226, .2);
+  --nv-text: #ecece9;
+  --nv-text-2: #a5a6a1;
+  --nv-muted: #75766f;
+  --nv-gold: #e6cf98;
+  --nv-silver: #c9d6e0;
+  --nv-glass: rgba(22, 23, 23, .78);
+  /* 卡片 / 标题 / 进度条 / 辉光：皮肤层与沉浸层共用 */
+  --nv-panel-bg: linear-gradient(165deg, rgba(52, 53, 52, .74), rgba(14, 15, 15, .92) 55%);
+  --nv-card-shadow: 0 18px 50px rgba(0, 0, 0, .38);
+  --nv-title-grad: linear-gradient(120deg, #ffffff 30%, #d6d7d3 62%, #e6cf98);
+  --nv-bar-grad: linear-gradient(90deg, #a9aba7, #e6cf98);
+  --nv-glow: rgba(230, 207, 152, .5);
+  --nv-scene-glow: rgba(88, 90, 88, .18);
+}
+
+.ko-nv-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: radial-gradient(ellipse 120% 90% at 50% 46%, #141515 0%, #090a0a 72%), var(--nv-bg);
+  color: var(--nv-text);
+  font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-feature-settings: "tnum";
+  -webkit-font-smoothing: antialiased;
+  animation: ko-nv-in .34s cubic-bezier(.2, .8, .2, 1) both;
+}
+.ko-nv-layer[hidden] { display: none; }
+@keyframes ko-nv-in { from { opacity: 0; } }
+
+/* 打开时锁滚动、收桌宠（桌宠 z-index 比本层高得多，会浮在场景上面） */
+body.ko-nv-open { overflow: hidden; }
+body.ko-nv-open #hxt-pet { display: none !important; }
+
+.ko-nv-layer *, .ko-nv-layer *::before, .ko-nv-layer *::after { box-sizing: border-box; }
+.ko-nv-layer button { font: inherit; color: inherit; cursor: pointer; }
+.ko-nv-layer :focus-visible { outline: 2px solid var(--nv-gold); outline-offset: 2px; border-radius: 8px; }
+.ko-nv-layer em { font-style: normal; color: var(--nv-muted); font-size: .8em; margin-left: .34em; letter-spacing: .02em; }
+
+/* —— 顶栏 —— */
+.ko-nv-top {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--nv-line);
+  background: linear-gradient(to bottom, rgba(12, 13, 13, .92), rgba(12, 13, 13, .3));
+  position: relative; z-index: 6;
+}
+.ko-nv-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ko-nv-brand-mark {
+  width: 30px; height: 30px; flex: none; border-radius: 10px; display: grid; place-items: center;
+  background: radial-gradient(circle at 34% 30%, #ffffff, #c9cac5 42%, #6f7370 100%);
+  box-shadow: 0 0 18px rgba(236, 236, 232, .22);
+}
+.ko-nv-brand-text { display: grid; line-height: 1.2; min-width: 0; }
+.ko-nv-brand-text b { font-size: 13.5px; font-weight: 600; letter-spacing: .1em; }
+.ko-nv-brand-text small { font-size: 10.5px; color: var(--nv-muted); letter-spacing: .05em; }
+.ko-nv-eyebrow { margin: 0; font-size: 10.5px; letter-spacing: .22em; color: var(--nv-gold); font-weight: 600; }
+
+.ko-nv-crumbs {
+  display: flex; align-items: center; gap: 8px; margin-left: auto;
+  padding: 4px 12px 4px 4px; border-radius: 999px;
+  background: rgba(20, 21, 21, .72); border: 1px solid var(--nv-line);
+}
+.ko-nv-crumbs button { border: 0; background: none; color: var(--nv-text-2); padding: 0; font-size: 12.5px; }
+.ko-nv-crumbs button:hover { color: var(--nv-text); }
+.ko-nv-crumbs .ko-nv-crumb-back {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255, 255, 255, .06); color: var(--nv-text);
+}
+.ko-nv-crumbs > span { color: var(--nv-muted); }
+.ko-nv-crumbs b { font-weight: 500; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ko-nv-crumbs[hidden] { display: none; }
+
+.ko-nv-top-actions { display: flex; align-items: center; gap: 8px; }
+.ko-nv-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 13px;
+  border-radius: 999px; border: 1px solid var(--nv-line-2);
+  background: rgba(255, 255, 255, .04); color: var(--nv-text); font-size: 12px;
+  transition: background .2s, border-color .2s;
+}
+.ko-nv-pill:hover { background: rgba(255, 255, 255, .09); border-color: rgba(230, 207, 152, .4); }
+.ko-nv-icon-btn {
+  width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--nv-line);
+  background: rgba(255, 255, 255, .03); color: var(--nv-text-2); display: grid; place-items: center;
+}
+.ko-nv-icon-btn:hover { color: var(--nv-text); border-color: var(--nv-line-2); }
+
+/* —— 舞台 —— */
+.ko-nv-stage { position: relative; overflow: hidden; }
+.ko-nv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; transition: opacity .8s ease, filter .8s ease; }
+.ko-nv-stage[data-stage="module"] .ko-nv-canvas,
+.ko-nv-stage[data-stage="note"] .ko-nv-canvas { opacity: .2; filter: blur(.6px); }
+.ko-nv-scene { position: absolute; inset: 0; pointer-events: none; }
+.ko-nv-scene > * { pointer-events: auto; }
+
+/* 光球：自绘（径向渐变球体 + 光晕 + 呼吸） */
+.ko-nv-orb {
+  position: absolute; left: 0; top: 0; width: 420px; height: 420px;
+  transform-origin: 0 0; pointer-events: none; will-change: transform;
+}
+.ko-nv-orb-core {
+  position: absolute; inset: 0; border-radius: 50%;
+  /* 白芯只占最内 4%，其余迅速压到银灰 —— 否则整个球是一坨过曝的白 */
+  background: radial-gradient(circle at 37% 33%, #fdfdfb 0%, #eef0ef 4%, #d5d9da 14%, #aeb5b8 30%, #7f888c 50%, #4d5457 70%, #222627 88%, #0f1111 100%);
+  box-shadow: inset -20px -24px 64px rgba(0, 0, 0, .6), inset 10px 12px 34px rgba(255, 255, 255, .12);
+  animation: ko-nv-breathe 5.5s ease-in-out infinite;
+}
+.ko-nv-orb-halo {
+  position: absolute; inset: -52%; border-radius: 50%;
+  background: radial-gradient(circle closest-side,
+    rgba(196, 199, 197, .26) 0%, rgba(182, 185, 183, .20) 30%,
+    rgba(162, 165, 163, .14) 44%, rgba(142, 145, 143, .09) 52%,
+    rgba(112, 115, 113, .05) 63%, rgba(84, 87, 85, .02) 76%, transparent 100%);
+  filter: blur(16px);
+}
+@keyframes ko-nv-breathe { 50% { transform: scale(1.045); } }
+
+/* 模块（= 顶层知识节点）与条目（= 下级节点） */
+.ko-nv-mod {
+  position: absolute; left: 0; top: 0; width: 96px; height: 96px; padding: 0;
+  border: 0; background: none; transform-origin: 0 0; will-change: transform, opacity;
+}
+.ko-nv-mod-core {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 40% 36%, rgba(255, 255, 255, .95) 0%, var(--nv-mod, #c9d6e0) 46%, rgba(0, 0, 0, .28) 100%);
+  box-shadow: 0 0 26px -4px var(--nv-mod, #c9d6e0);
+  transition: box-shadow .3s, filter .3s;
+}
+.ko-nv-mod:hover .ko-nv-mod-core, .ko-nv-mod.is-active .ko-nv-mod-core { filter: brightness(1.25); box-shadow: 0 0 40px -2px var(--nv-mod, #c9d6e0); }
+.ko-nv-mod-label {
+  position: absolute; left: 0; top: 0; z-index: 2; min-width: 132px; padding: 8px 12px 9px;
+  border-radius: 12px; border: 1px solid var(--nv-line); background: var(--nv-glass);
+  text-align: left; will-change: transform, opacity; transition: border-color .3s, box-shadow .3s;
+}
+.ko-nv-mod-label:hover { border-color: color-mix(in srgb, var(--nv-mod) 55%, transparent); }
+.ko-nv-mod-label.is-active {
+  border-color: rgba(230, 207, 152, .7);
+  box-shadow: 0 0 0 1px rgba(230, 207, 152, .22), 0 0 26px color-mix(in srgb, var(--nv-mod) 30%, transparent);
+}
+.ko-nv-mod-name { display: block; font-size: 12.5px; font-weight: 500; max-width: 168px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 模块层（.is-column）：标签统一压成一行「名称 + 数量」。
+   16 个顶层模块排一列，若选中的那个是两行就会压住上下邻居。 */
+.ko-nv-mod-label.is-column {
+  display: flex; align-items: center; gap: 7px;
+  min-width: 0; padding: 4px 10px; border-radius: 9px;
+}
+.ko-nv-mod-label.is-column .ko-nv-mod-name { font-size: 11.5px; max-width: 152px; }
+.ko-nv-mod-label.is-column .ko-nv-mod-meta { margin: 0; gap: 0; }
+.ko-nv-mod-label.is-column .ko-nv-mod-sub,
+.ko-nv-mod-label.is-column .ko-nv-mod-status,
+.ko-nv-mod-label.is-column .ko-nv-mod-dot { display: none; }
+.ko-nv-mod-label.is-column .ko-nv-mod-count { font-size: 11px; color: var(--nv-text-2); }
+.ko-nv-mod-label.is-column.is-active .ko-nv-mod-count { color: var(--nv-gold); }
+.ko-nv-mod-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 10.5px; color: var(--nv-text-2); }
+.ko-nv-mod-count { font-size: 17px; font-weight: 600; line-height: 1; color: var(--nv-text); }
+.ko-nv-mod-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nv-mod); box-shadow: 0 0 8px var(--nv-mod); }
+
+.ko-nv-item {
+  position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 9px; height: 30px;
+  padding: 0; border: 0; background: none; color: var(--nv-text); text-align: left; will-change: transform, opacity;
+}
+.ko-nv-item-dot { flex: none; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%; background: var(--nv-kc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nv-kc) 18%, transparent), 0 0 14px var(--nv-kc); }
+.ko-nv-item-body { display: grid; gap: 2px; padding: 3px 10px; border-radius: 9px; border: 1px solid transparent; transition: background .25s, border-color .25s; }
+.ko-nv-item-title { max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
+.ko-nv-item-meta { display: flex; gap: 5px; font-size: 9.5px; color: var(--nv-text-2); }
+.ko-nv-item-meta > span { padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, .06); white-space: nowrap; }
+.ko-nv-item-meta b { color: var(--nv-text); font-weight: 500; }
+.ko-nv-item:hover .ko-nv-item-body { background: rgba(255, 255, 255, .05); border-color: var(--nv-line); }
+.ko-nv-item.is-active .ko-nv-item-body { background: color-mix(in srgb, var(--nv-kc) 14%, rgba(18, 19, 19, .82)); border-color: color-mix(in srgb, var(--nv-kc) 55%, transparent); }
+
+/* 连线（神经丝 + 往返脉冲） */
+.ko-nv-threads { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none !important; overflow: visible; }
+.ko-nv-thread-glow { fill: none; stroke: currentColor; stroke-width: 6; opacity: .4; }
+.ko-nv-thread-core { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+.ko-nv-fan { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; transition: stroke-width .3s; }
+
+/* 中心文案 */
+.ko-nv-copy { position: absolute; left: 34px; top: 30px; max-width: 340px; pointer-events: none; animation: ko-nv-fade 1s .3s both; }
+.ko-nv-stage[data-stage="module"] .ko-nv-copy,
+.ko-nv-stage[data-stage="note"] .ko-nv-copy { opacity: 0; transform: translateY(-10px); }
+.ko-nv-copy h2 {
+  margin: 0; font-size: clamp(26px, 2.6vw, 38px); line-height: 1.18; font-weight: 600; letter-spacing: .02em;
+  background: linear-gradient(120deg, #ffffff 30%, #d6d7d3 62%, #e6cf98);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.ko-nv-copy p { margin: 8px 0 0; font-size: 12.5px; color: var(--nv-text-2); }
+.ko-nv-copy .ko-nv-hint { color: var(--nv-gold); opacity: .9; font-size: 11.5px; }
+@keyframes ko-nv-fade { from { opacity: 0; transform: translateY(12px); } }
+
+/* 提示条 */
+.ko-nv-stage-hint {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0;
+  padding: 7px 16px; border-radius: 999px; border: 1px solid var(--nv-line);
+  background: rgba(20, 21, 21, .72); font-size: 12px; color: var(--nv-text-2); white-space: nowrap;
+}
+.ko-nv-stage-hint[hidden] { display: none; }
+
+/* —— 右侧分析栏 —— */
+.ko-nv-panel {
+  position: absolute; right: 18px; top: 14px; bottom: 14px; width: clamp(380px, 33vw, 500px);
+  display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 20px; border: 1px solid rgba(236, 236, 232, .15);
+  background: linear-gradient(165deg, rgba(52, 53, 52, .74), rgba(14, 15, 15, .92) 55%);
+  z-index: 8; animation: ko-nv-slide .55s cubic-bezier(.2, .8, .2, 1) both;
+}
+.ko-nv-panel[hidden] { display: none; }
+@keyframes ko-nv-slide { from { opacity: 0; transform: translateX(40px); } }
+.ko-nv-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--nv-line); }
+.ko-nv-panel-cat { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--nv-text-2); }
+.ko-nv-panel-cat i { width: 8px; height: 8px; border-radius: 50%; background: var(--nv-kc); box-shadow: 0 0 8px var(--nv-kc); }
+.ko-nv-panel-scroll { flex: 1; overflow: auto; padding: 16px 18px 18px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .16) transparent; }
+.ko-nv-panel h3 { margin: 0; font-size: 21px; line-height: 1.3; font-weight: 600; }
+.ko-nv-panel-sub { margin: 8px 0 0; font-size: 11.5px; color: var(--nv-muted); }
+.ko-nv-metric { margin-top: 12px; padding: 11px 14px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, .08); background: linear-gradient(115deg, rgba(104, 44, 62, .34), rgba(44, 34, 46, .3) 50%, rgba(28, 29, 30, .42)); }
+.ko-nv-metric header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--nv-text-2); }
+/* 指标压成一行：原来「大数字 + 两块 tile」占了近 200px，把侧边栏的文档正文挤到折叠区外 */
+.ko-nv-metric-body { display: flex; align-items: baseline; gap: 14px; margin-top: 5px; }
+.ko-nv-metric-body strong { font-size: 28px; font-weight: 600; line-height: 1; letter-spacing: -.01em; }
+.ko-nv-metric-stat { font-size: 11px; color: var(--nv-text-2); white-space: nowrap; }
+.ko-nv-metric-stat b { margin-left: 3px; font-size: 13px; color: var(--nv-text); }
+.ko-nv-sec { margin-top: 14px; }
+.ko-nv-lvl { font-size: 10.5px; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .2); }
+.ko-nv-lvl.high { border-color: rgba(230, 207, 152, .5); color: var(--nv-gold); }
+.ko-nv-lvl.low { border-color: rgba(255, 115, 133, .4); color: #ffb0bb; }
+.ko-nv-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 10px; }
+.ko-nv-tile { padding: 10px 12px; border-radius: 13px; border: 1px solid var(--nv-line); background: rgba(255, 255, 255, .025); }
+.ko-nv-tile strong { display: block; font-size: 20px; font-weight: 600; }
+.ko-nv-tile p { margin: 4px 0 0; font-size: 11px; color: var(--nv-text-2); }
+.ko-nv-sec { margin-top: 18px; }
+.ko-nv-sec > h4 { margin: 0 0 9px; font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.ko-nv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ko-nv-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 10px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--nv-kc, #9db3af) 38%, transparent);
+  background: color-mix(in srgb, var(--nv-kc, #9db3af) 10%, transparent); font-size: 11.5px;
+}
+button.ko-nv-chip:hover { background: color-mix(in srgb, var(--nv-kc, #9db3af) 24%, transparent); }
+.ko-nv-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+.ko-nv-chip small { color: var(--nv-muted); font-size: 10px; }
+.ko-nv-empty-line { margin: 0; font-size: 12px; color: var(--nv-muted); }
+.ko-nv-panel-foot { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--nv-line); background: rgba(12, 13, 13, .6); }
+
+/* —— 底部坞：问图谱 —— */
+.ko-nv-dock { display: grid; gap: 8px; padding: 0 20px 16px; position: relative; z-index: 6; }
+.ko-nv-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border-radius: 14px; overflow: hidden; border: 1px solid var(--nv-line); background: var(--nv-line); }
+.ko-nv-kpis div { display: grid; gap: 2px; padding: 10px 14px; background: rgba(16, 17, 17, .94); }
+.ko-nv-kpis span { font-size: 10.5px; color: var(--nv-text-2); }
+.ko-nv-kpis strong { font-size: 19px; font-weight: 600; }
+.ko-nv-kpis div:nth-child(3) strong { color: var(--nv-gold); }
+/* KPI 挪到顶栏：横排紧凑胶囊，靠右停在「重播 / 关闭」前 */
+.ko-nv-top .ko-nv-kpis {
+  margin-left: auto; display: flex; align-items: stretch; gap: 1px;
+  border-radius: 999px; overflow: hidden;
+  border: 1px solid var(--nv-line); background: var(--nv-line);
+}
+/* 面包屑在场时它自己吃掉全部余量，KPI 紧贴其后，别再抢一次 auto */
+.ko-nv-top .ko-nv-crumbs:not([hidden]) + .ko-nv-kpis { margin-left: 6px; }
+.ko-nv-top .ko-nv-kpis div { display: flex; align-items: baseline; gap: 7px; padding: 5px 13px; background: rgba(16, 17, 17, .94); }
+.ko-nv-top .ko-nv-kpis span { font-size: 10.5px; color: var(--nv-text-2); white-space: nowrap; }
+.ko-nv-top .ko-nv-kpis strong { font-size: 14px; line-height: 1.1; }
+.ko-nv-ask { position: relative; display: flex; align-items: center; }
+.ko-nv-ask input {
+  width: 100%; height: 42px; padding: 0 50px 0 18px; border-radius: 999px;
+  border: 1px solid var(--nv-line-2); background: rgba(255, 255, 255, .06); color: var(--nv-text); outline: none;
+}
+.ko-nv-ask input::placeholder { color: var(--nv-muted); }
+.ko-nv-ask input:focus { border-color: rgba(230, 207, 152, .5); box-shadow: 0 0 0 3px rgba(230, 207, 152, .1); }
+.ko-nv-send {
+  position: absolute; right: 5px; width: 32px; height: 32px; border-radius: 50%; border: 0;
+  display: grid; place-items: center; color: #161716;
+  background: linear-gradient(135deg, #f4f4f1, #c6c7c2);
+}
+.ko-nv-chips-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 0 2px; }
+.ko-nv-chips-row > span { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--nv-text-2); padding: 4px 9px; border-radius: 8px; background: rgba(255, 255, 255, .05); }
+.ko-nv-chips-row button { font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--nv-line); background: none; color: var(--nv-text-2); }
+.ko-nv-chips-row button:hover { color: var(--nv-text); border-color: rgba(236, 236, 232, .35); background: rgba(236, 236, 232, .07); }
+
+/* 问图谱结果 */
+.ko-nv-answers {
+  position: absolute; left: 20px; right: auto; bottom: 100%;
+  /* 右侧要让开分析栏（否则长句的右半截被侧边栏压住看不见） */
+  width: min(780px, calc(100vw - 600px));
+  margin-bottom: 8px; max-height: min(42vh, 380px); overflow: auto;
+  padding: 12px; border-radius: 16px; border: 1px solid var(--nv-line-2);
+  background: var(--nv-glass); animation: ko-nv-fade .3s both;
+}
+@media (max-width: 900px) { .ko-nv-answers { width: calc(100vw - 40px); } }
+.ko-nv-answers[hidden] { display: none; }
+.ko-nv-answers header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; }
+.ko-nv-answers header small { color: var(--nv-muted); font-weight: 400; letter-spacing: 0; font-size: 11px; }
+.ko-nv-answers header button { margin-left: auto; }
+.ko-nv-card { position: relative; padding: 10px 12px 11px 16px; margin-bottom: 8px; border-radius: 12px; border: 1px solid var(--nv-line); background: rgba(255, 255, 255, .03); }
+.ko-nv-card::before { content: ""; position: absolute; left: 7px; top: 12px; bottom: 12px; width: 2px; border-radius: 2px; background: var(--nv-silver); }
+.ko-nv-card.tone-gold::before { background: var(--nv-gold); }
+.ko-nv-card h5 { margin: 0 0 3px; font-size: 13px; font-weight: 600; }
+.ko-nv-card p { margin: 0; font-size: 12px; color: var(--nv-text-2); }
+.ko-nv-card .ko-nv-chips { margin-top: 8px; }
+
+/* —— 侧边栏里的「文档内容」 —— */
+.ko-nv-doc-sec > h4 { display: flex; align-items: center; gap: 6px; }
+.ko-nv-doc-badge {
+  margin-left: auto; padding: 1px 7px; border-radius: 6px; font-size: 10px;
+  border: 1px solid var(--nv-line-2); color: var(--nv-text-2);
+}
+.ko-nv-doc-body { font-size: 13px; line-height: 1.75; color: var(--nv-text); }
+/* 正文由 app.js 的 Markdown 渲染器产出（与知识点文档同一套），这里是深色下的排版 */
+.ko-nv-doc-body h1, .ko-nv-doc-body h2, .ko-nv-doc-body h3, .ko-nv-doc-body h4 {
+  margin: 16px 0 8px; font-weight: 600; line-height: 1.35; color: var(--nv-text);
+}
+.ko-nv-doc-body h1 { font-size: 17px; }
+.ko-nv-doc-body h2 { font-size: 15.5px; padding-bottom: 5px; border-bottom: 1px solid var(--nv-line); }
+.ko-nv-doc-body h3 { font-size: 14px; color: var(--nv-gold); }
+.ko-nv-doc-body h4 { font-size: 13px; }
+.ko-nv-doc-body p { margin: 8px 0; color: var(--nv-text); }
+.ko-nv-doc-body ul, .ko-nv-doc-body ol { margin: 8px 0; padding-left: 20px; }
+.ko-nv-doc-body li { margin: 4px 0; }
+.ko-nv-doc-body strong, .ko-nv-doc-body b { color: #fff; font-weight: 600; }
+.ko-nv-doc-body em { color: var(--nv-text-2); font-size: 1em; margin: 0; }
+.ko-nv-doc-body code {
+  padding: 1px 5px; border-radius: 5px; font-size: 12px;
+  background: rgba(255, 255, 255, .08); color: var(--nv-gold);
+}
+.ko-nv-doc-body pre {
+  margin: 10px 0; padding: 10px 12px; border-radius: 10px; overflow: auto;
+  background: rgba(0, 0, 0, .4); border: 1px solid var(--nv-line);
+}
+.ko-nv-doc-body pre code { background: none; color: var(--nv-text); padding: 0; }
+.ko-nv-doc-body blockquote {
+  margin: 10px 0; padding: 6px 12px; border-left: 2px solid var(--nv-gold);
+  background: rgba(230, 207, 152, .07); color: var(--nv-text-2);
+}
+.ko-nv-doc-body table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+.ko-nv-doc-body th, .ko-nv-doc-body td { padding: 6px 8px; border: 1px solid var(--nv-line); text-align: left; }
+.ko-nv-doc-body th { background: rgba(255, 255, 255, .05); color: var(--nv-text); font-weight: 600; }
+.ko-nv-doc-body a { color: var(--nv-gold); }
+.ko-nv-doc-body hr { border: 0; border-top: 1px solid var(--nv-line); margin: 14px 0; }
+.ko-nv-doc-body img { max-width: 100%; border-radius: 8px; }
+.ko-nv-doc-body .katex { color: var(--nv-text); }
+.ko-nv-pre { white-space: pre-wrap; font: inherit; margin: 0; }
+
+/* —— 问 AI：对话线程 —— */
+.ko-nv-mode {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid rgba(230, 207, 152, .45); background: rgba(230, 207, 152, .12); color: var(--nv-gold);
+}
+.ko-nv-mode i { width: 6px; height: 6px; border-radius: 50%; background: var(--nv-gold); box-shadow: 0 0 8px var(--nv-gold); }
+.ko-nv-mode:hover { background: rgba(230, 207, 152, .2); }
+.ko-nv-mode[aria-pressed="false"] { border-color: var(--nv-line); background: none; color: var(--nv-text-2); }
+.ko-nv-mode[aria-pressed="false"] i { background: var(--nv-muted); box-shadow: none; }
+.ko-nv-thread { display: grid; gap: 2px; }
+.ko-nv-turn { display: flex; gap: 8px; padding: 4px 0; }
+.ko-nv-mark {
+  flex: none; width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center;
+  font-size: 10.5px; background: rgba(255, 255, 255, .07); color: var(--nv-text-2); margin-top: 1px;
+}
+.ko-nv-turn.is-q { margin-top: 8px; }
+.ko-nv-turn.is-q .ko-nv-mark { background: rgba(230, 207, 152, .16); color: var(--nv-gold); }
+.ko-nv-turn.is-q > div { font-size: 12.5px; color: var(--nv-text); font-weight: 500; }
+.ko-nv-a-body { font-size: 13px; line-height: 1.75; color: var(--nv-text); min-width: 0; white-space: pre-wrap; }
+.ko-nv-a-body h1, .ko-nv-a-body h2, .ko-nv-a-body h3, .ko-nv-a-body h4 { margin: 12px 0 6px; font-weight: 600; }
+.ko-nv-a-body h2 { font-size: 14.5px; color: var(--nv-gold); }
+.ko-nv-a-body h3 { font-size: 13.5px; color: var(--nv-gold); }
+.ko-nv-a-body p { margin: 7px 0; }
+.ko-nv-a-body ul, .ko-nv-a-body ol { margin: 7px 0; padding-left: 20px; }
+.ko-nv-a-body li { margin: 3px 0; }
+.ko-nv-a-body strong { color: #fff; }
+.ko-nv-a-body code { padding: 1px 5px; border-radius: 5px; font-size: 12px; background: rgba(255, 255, 255, .08); color: var(--nv-gold); }
+.ko-nv-typing { color: var(--nv-text-2); }
+.ko-nv-err { color: #ffb0bb; }
+.ko-nv-answers { max-height: min(58vh, 520px); }
+
+/* 空态 */
+.ko-nv-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; padding: 40px; }
+/* 必须显式写：作者样式表的 display:grid 会压过 UA 的 [hidden]{display:none}，
+   否则「隐藏」的空态仍铺满整层、吃掉所有点击（探针实测：模块点不动）。 */
+.ko-nv-empty[hidden] { display: none; }
+.ko-nv-empty h3 { margin: 0; font-size: 18px; font-weight: 600; }
+.ko-nv-empty p { margin: 0; font-size: 13px; color: var(--nv-text-2); max-width: 420px; }
+
+/* 图谱工具栏里的入口按钮（由 kb-neural-view.js 注入，不改 app.js） */
+.kb-neural-open-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.kb-neural-open-btn::before {
+  content: ""; width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 36% 32%, #fff, #cfd3d4 45%, #6f7370);
+  box-shadow: 0 0 8px rgba(230, 207, 152, .6);
+}
+
+@media (max-width: 900px) {
+  .ko-nv-panel { position: absolute; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; height: 68%; z-index: 20; }
+  .ko-nv-kpis { grid-template-columns: repeat(2, 1fr); }
+  /* 窄屏顶栏：KPI 去掉英文小字、收紧内边距，别把「重播 / 关闭」挤出去 */
+  .ko-nv-top .ko-nv-kpis em { display: none; }
+  .ko-nv-top .ko-nv-kpis div { padding: 5px 9px; gap: 5px; }
+  .ko-nv-copy { left: 16px; top: 16px; }
+  .ko-nv-copy h2 { font-size: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ko-nv-layer *, .ko-nv-layer *::before, .ko-nv-layer *::after {
+    animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important;
+  }
+}
+
+/* ==================================================================
+ * 1) Markdown 渲染器（.study-*）在深色场景下的压回
+ * ------------------------------------------------------------------
+ * renderStudyTextContent 输出的类是按**浅色纸面**写的：
+ *   .study-table      { background: #fff }        ← 整块泛白
+ *   .study-table thead th { background: var(--sidebar); color: #4a3f1c }  ← 深棕字看不见
+ * 神经图谱深色层必须逐类压回来。**只压深色** —— 浅色模式下全局那套本来就是对的。
+ * ================================================================== */
+html[data-theme="dark"] .ko-nv-layer .ko-nv-doc-body .study-table,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-a-body .study-table {
+  background: rgba(255, 255, 255, .04);
+  border-color: var(--nv-line);
+}
+html[data-theme="dark"] .ko-nv-layer .ko-nv-doc-body .study-table th,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-doc-body .study-table td,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-a-body .study-table th,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-a-body .study-table td {
+  border-bottom-color: var(--nv-line);
+  border-right-color: var(--nv-line);
+  color: var(--nv-text);
+}
+html[data-theme="dark"] .ko-nv-layer .ko-nv-doc-body .study-table thead th,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-a-body .study-table thead th {
+  background: rgba(255, 255, 255, .09);
+  color: var(--nv-text);
+}
+html[data-theme="dark"] .ko-nv-layer .ko-nv-doc-body .study-text-blocks,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-a-body .study-text-blocks { column-count: 1 !important; }
+html[data-theme="dark"] .ko-nv-layer .ko-nv-doc-body .study-text-bullet-list li::marker,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-a-body .study-text-bullet-list li::marker { color: var(--nv-gold); }
+html[data-theme="dark"] .ko-nv-layer .ko-nv-doc-body .study-text-heading,
+html[data-theme="dark"] .ko-nv-layer .ko-nv-a-body .study-text-heading { color: var(--nv-text); }
+
+/* ==================================================================
+ * 2) 浅色模式适配
+ * ------------------------------------------------------------------
+ * 深色是本层的默认（也是它的主场）。浅色模式下把整套材质换成
+ * 知源的暖纸底：球体靠**描边 + 投影**立起来（浅底上纯辉光会糊），
+ * 香槟金压深才看得见。只改 token 与几处硬编码材质，结构一行不动。
+ * ================================================================== */
+html[data-theme="light"] {
+  --nv-bg: #faf8f3;
+  --nv-bg-2: #fffdf8;
+  --nv-line: rgba(45, 42, 38, .13);
+  --nv-line-2: rgba(45, 42, 38, .24);
+  --nv-text: #2d2a26;
+  --nv-text-2: #6f685e;
+  --nv-muted: #948c7e;
+  --nv-gold: #a9822a;
+  --nv-silver: #6f7c88;
+  --nv-glass: rgba(255, 253, 248, .92);
+  --nv-panel-bg: linear-gradient(165deg, rgba(255, 253, 248, .97), rgba(247, 243, 236, .99) 55%);
+  --nv-card-shadow: 0 14px 38px rgba(88, 80, 64, .10);
+  --nv-title-grad: linear-gradient(120deg, #3a3630 20%, #6f685e 60%, #a9822a);
+  --nv-bar-grad: linear-gradient(90deg, #b9b3a6, #d4a843);
+  --nv-glow: rgba(212, 168, 67, .45);
+  --nv-scene-glow: rgba(180, 172, 156, .3);
+}
+html[data-theme="light"] .ko-nv-layer {
+  background: radial-gradient(ellipse 120% 90% at 50% 46%, #fffdf8 0%, #f2ede3 72%), #faf8f3;
+}
+/* 顶栏 / 面包屑 / 提示条：深色下是半透明黑，浅色下换成半透明纸 */
+html[data-theme="light"] .ko-nv-layer .ko-nv-top {
+  background: linear-gradient(to bottom, rgba(250, 248, 243, .94), rgba(250, 248, 243, .35));
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-crumbs,
+html[data-theme="light"] .ko-nv-layer .ko-nv-stage-hint {
+  background: rgba(255, 253, 248, .9);
+  box-shadow: 0 4px 14px rgba(88, 80, 64, .08);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-icon-btn,
+html[data-theme="light"] .ko-nv-layer .ko-nv-pill,
+html[data-theme="light"] .ko-nv-layer .ko-nv-ask input,
+html[data-theme="light"] .ko-nv-layer .ko-nv-mark,
+html[data-theme="light"] .ko-nv-layer .ko-nv-item-meta > span,
+html[data-theme="light"] .ko-nv-layer .ko-nv-card,
+html[data-theme="light"] .ko-nv-layer .ko-nv-doc-body th,
+html[data-theme="light"] .ko-nv-layer .ko-nv-doc-body code,
+html[data-theme="light"] .ko-nv-layer .ko-nv-a-body code {
+  background: rgba(45, 42, 38, .05);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-doc-body pre {
+  background: rgba(45, 42, 38, .06);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-doc-body strong,
+html[data-theme="light"] .ko-nv-layer .ko-nv-a-body strong { color: #14120f; }
+/* 光球：浅底上不能靠辉光，要靠**球体自身的明暗 + 投影** */
+html[data-theme="light"] .ko-nv-layer .ko-nv-orb-core {
+  background: radial-gradient(circle at 37% 33%, #ffffff 0%, #f7f9f9 5%, #e2e7e9 18%, #c6cdd1 36%, #a2abb0 56%, #7b858a 76%, #596166 100%);
+  box-shadow: inset -16px -20px 50px rgba(74, 82, 86, .26), inset 10px 12px 30px rgba(255, 255, 255, .9), 0 20px 46px rgba(88, 80, 64, .18);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-orb-halo {
+  background: radial-gradient(circle closest-side, rgba(120, 116, 105, .16) 0%, rgba(130, 126, 115, .10) 30%, rgba(140, 136, 125, .05) 50%, transparent 100%);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-mod-core {
+  background: radial-gradient(circle at 40% 36%, #ffffff 0%, var(--nv-mod, #8d99a4) 48%, rgba(70, 76, 80, .3) 100%);
+  box-shadow: 0 3px 10px rgba(88, 80, 64, .16);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-mod-label { background: rgba(255, 253, 248, .92); }
+/* 选中态的底是深色写死的（rgba(18,19,19,.82)），浅色下要换成纸底 */
+html[data-theme="light"] .ko-nv-layer .ko-nv-item.is-active .ko-nv-item-body {
+  background: color-mix(in srgb, var(--nv-kc) 16%, rgba(255, 253, 248, .92));
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-mod-label.is-active {
+  background: linear-gradient(120deg, color-mix(in srgb, var(--nv-mod) 18%, transparent), rgba(255, 253, 248, .95));
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-item:hover .ko-nv-item-body { background: rgba(45, 42, 38, .05); }
+html[data-theme="light"] .ko-nv-layer .ko-nv-panel {
+  background: linear-gradient(165deg, rgba(255, 253, 248, .97), rgba(247, 243, 236, .99) 55%);
+  border-color: rgba(45, 42, 38, .14);
+  box-shadow: 0 18px 50px rgba(88, 80, 64, .14);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-metric {
+  background: linear-gradient(115deg, rgba(212, 168, 67, .16), rgba(206, 200, 188, .18) 50%, rgba(244, 240, 232, .6));
+  border-color: rgba(45, 42, 38, .1);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-kpis div { background: rgba(255, 253, 248, .96); }
+html[data-theme="light"] .ko-nv-layer .ko-nv-send {
+  background: linear-gradient(135deg, #3a3733, #55504a);
+  color: #fffdf8;
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-lvl { border-color: rgba(45, 42, 38, .2); }
+html[data-theme="light"] .ko-nv-layer .ko-nv-lvl.high { border-color: rgba(169, 130, 42, .5); color: #8a6a1f; }
+html[data-theme="light"] .ko-nv-layer .ko-nv-lvl.low { border-color: rgba(199, 92, 92, .45); color: #a83b3b; }
+html[data-theme="light"] .ko-nv-layer .ko-nv-err { color: #a83b3b; }
+
+
+/* ==================================================================
+ * 3) 神经皮肤：把同一套视觉用到页面内模块
+ * ------------------------------------------------------------------
+ * 与沉浸层共用 --nv-* token（定义在文件顶部 :root），深浅两套自动跟随主题。
+ * 目前挂在「学习概览」(.overview-dashboard) —— 知源里最像仪表盘的模块。
+ *
+ * 选择器一律带 html[data-theme]：否则压不过 app 自己的
+ * `html[data-theme="dark"] .overview-panel`（那条比裸类名高一级）。
+ * 只覆盖外观，不动任何结构 / 交互；删掉本节即回到原样。
+ * ================================================================== */
+html[data-theme] .overview-dashboard { position: relative; }
+/* 场景底：从顶部中心散开的微光，与沉浸层的舞台同一套 */
+html[data-theme] .overview-dashboard::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -18px; height: 320px;
+  z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse 60% 100% at 50% 0%, var(--nv-scene-glow), transparent 72%);
+}
+html[data-theme] .overview-dashboard > * { position: relative; z-index: 1; }
+
+/* 顶部大数字：白→银→金渐变字（与沉浸层标题同一套） */
+html[data-theme] .overview-dashboard .overview-hero h3 {
+  background: var(--nv-title-grad);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; letter-spacing: -.01em;
+}
+html[data-theme] .overview-dashboard .overview-hero .eyebrow { color: var(--nv-gold); letter-spacing: .22em; }
+
+/* 面板 / 指标卡 / 节点卡：玻璃卡 */
+html[data-theme] .overview-dashboard .overview-panel,
+html[data-theme] .overview-dashboard .metric-card,
+html[data-theme] .overview-dashboard .overview-node-card {
+  background: var(--nv-panel-bg);
+  border: 1px solid var(--nv-line);
+  border-radius: 18px;
+  box-shadow: var(--nv-card-shadow);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+html[data-theme] .overview-dashboard .metric-card,
+html[data-theme] .overview-dashboard .overview-node-card { border-radius: 14px; }
+html[data-theme] .overview-dashboard .metric-card strong { color: var(--nv-gold); }
+
+/* 进度条：金色渐变 + 发光 */
+html[data-theme] .overview-dashboard .progress-track { background: var(--nv-line); }
+html[data-theme] .overview-dashboard .progress-track i {
+  background: var(--nv-bar-grad);
+  box-shadow: 0 0 10px var(--nv-glow);
+}
+html[data-theme] .overview-dashboard .mastery-stack { background: var(--nv-line); }
+
+/* 选中的档位 / 按钮悬停：描金 + 外发光 */
+html[data-theme] .overview-dashboard .mastery-bucket.active {
+  border-color: color-mix(in srgb, var(--nv-gold) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nv-gold) 30%, transparent), 0 0 26px var(--nv-glow);
+}
+html[data-theme] .overview-dashboard .mastery-bucket:hover { border-color: var(--nv-line-2); }
+html[data-theme] .overview-dashboard .mini-button { border-color: var(--nv-line-2); }
+html[data-theme] .overview-dashboard .mini-button:hover {
+  border-color: color-mix(in srgb, var(--nv-gold) 55%, transparent);
+  box-shadow: 0 0 18px var(--nv-glow);
+}
+
+/* 「我的笔记」：分组卡换成玻璃卡，标题与总数走香槟金。
+   注意 .favorite-groups 是 .favorites-overview 的**兄弟**（不是子节点），
+   分组卡不能写成 .favorites-overview .favorite-group。
+   （卡片 / 测验两个模块的皮肤先不写 —— 它们要真实卡片/测验数据才能渲染，
+     不验证就上线违背本项目「改动必须可验证」的规矩。） */
+html[data-theme] .favorite-group {
+  background: var(--nv-panel-bg);
+  border: 1px solid var(--nv-line);
+  border-radius: 16px;
+  box-shadow: var(--nv-card-shadow);
+}
+html[data-theme] .favorites-overview .eyebrow { color: var(--nv-gold); letter-spacing: .22em; }
+html[data-theme] .favorites-overview .favorite-total { color: var(--nv-gold); }
+html[data-theme] .favorite-group .favorite-content,
+html[data-theme] .favorite-group .favorite-answer { border-color: var(--nv-line); }

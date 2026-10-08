@@ -1,0 +1,226 @@
+[
+ {
+  "node_id": "birefringent_pm",
+  "name": "双折射相位匹配",
+  "parent_id": "phase_matching",
+  "description": "利用晶体的双折射特性（o光和e光折射率不同）来补偿色散，实现Δk=0。分为I类和II类匹配。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch1_intro",
+  "name": "绪论与基本概念",
+  "parent_id": "root",
+  "description": "非线性光学诞生的标志是激光的发明。与线性光学不同，非线性光学中光波之间可以发生能量交换，产生新的频率分量。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch2_linear",
+  "name": "线性光学基础",
+  "parent_id": "root",
+  "description": "包括玻印廷定理（能量守恒）、线性极化率、折射率与极化率的关系。线性光学中光波互不干扰，无能量交换。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch3_polarization",
+  "name": "非线性极化率与张量",
+  "parent_id": "root",
+  "description": "极化强度P是电场E的级数展开。二阶非线性极化率χ(2)是三阶张量，受晶体对称性（如中心对称、克莱曼对称）约束而简化。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch4_wave_mixing",
+  "name": "三波混频与相位匹配",
+  "parent_id": "root",
+  "description": "描述二阶非线性过程中的和频(SFG)、差频(DFG)、倍频(SHG)。核心是相位匹配(PM)条件，即动量守恒，决定转换效率。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch5_qpm",
+  "name": "准相位匹配(QPM)",
+  "parent_id": "root",
+  "description": "通过周期性极化反转晶体（如PPLN）来补偿相位失配，突破双折射相位匹配的限制，可使用最大非线性系数。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch6_nonlinear",
+  "name": "非小信号与光参量",
+  "parent_id": "root",
+  "description": "研究泵浦光耗尽情况下的耦合波方程解、Manley-Rowe关系、光参量放大(OPA)及光参量产生(OPG)。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch7_devices",
+  "name": "二阶非线性器件与材料",
+  "parent_id": "root",
+  "description": "包括光参量振荡器(OPO)的原理、阈值、调谐方法（角度、温度），以及常用非线性晶体（KDP, KTP, LN等）的特性。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "ch8_third_order",
+  "name": "三阶非线性效应",
+  "parent_id": "root",
+  "description": "包括克尔效应（自聚焦）、四波混频(FWM)、双光子吸收(TPA)和光学相位共轭。三阶效应存在于所有介质中。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "coupled_wave_eq",
+  "name": "耦合波方程",
+  "parent_id": "ch4_wave_mixing",
+  "description": "描述非线性过程中各光波振幅随传播距离变化的微分方程组。小信号近似下可解析求解。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "effective_d",
+  "name": "有效非线性系数",
+  "parent_id": "ch3_polarization",
+  "description": "描述特定偏振和传播方向下的等效非线性系数。受晶体取向、偏振组合及有效非线性系数矩阵影响。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "electro_optic",
+  "name": "电光效应",
+  "parent_id": "ch3_polarization",
+  "description": "外加电场改变晶体折射率，分为线性（Pockels）和二次（Kerr）效应。用于光调制和太赫兹探测。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "experimental_shg",
+  "name": "倍频实验技术",
+  "parent_id": "ch7_devices",
+  "description": "脉冲Nd:YAG激光倍频实验，测量匹配角，验证相位匹配条件，计算理论值与实验值对比。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "four_wave_mixing",
+  "name": "四波混频(FWM)",
+  "parent_id": "third_order_effects",
+  "description": "三个光波相互作用产生第四个光波，包括简并和非简并情况，可用于相位共轭和波长转换。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "gaussian_beams",
+  "name": "高斯光束传输",
+  "parent_id": "ch2_linear",
+  "description": "实际激光多为高斯光束，其传输规律由q参数描述。聚焦和共焦条件影响非线性转换效率。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "manley_rowe",
+  "name": "Manley-Rowe关系",
+  "parent_id": "ch6_nonlinear",
+  "description": "描述三波混频过程中光子数守恒的关系，反映了能量在不同频率光波间的转移极限。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "noncollinear_pm",
+  "name": "非共线相位匹配",
+  "parent_id": "phase_matching",
+  "description": "利用非共线几何结构补偿走离效应或实现宽带频率变换，特别适用于反常色散介质中的太赫兹产生。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "nonlinear_crystals",
+  "name": "非线性晶体材料",
+  "parent_id": "ch7_devices",
+  "description": "常用晶体包括KDP、KTP、LN、BBO、LBO等，需具备高损伤阈值、大非线性系数、宽透光范围等特性。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "opa_opg",
+  "name": "光参量放大与产生",
+  "parent_id": "ch6_nonlinear",
+  "description": "OPA需要信号光输入，OPG无需输入即可从真空涨落产生信号光和闲频光，具有指数增益特性。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "opo_principle",
+  "name": "光参量振荡器(OPO)",
+  "parent_id": "ch7_devices",
+  "description": "在谐振腔内实现光参量放大，当增益等于损耗时起振。分为单谐振(SRO)和双谐振(DRO)。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "opo_tuning",
+  "name": "OPO调谐方法",
+  "parent_id": "ch7_devices",
+  "description": "通过改变晶体角度（角度调谐）或温度（温度调谐）来改变相位匹配条件，从而连续调节输出波长。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "optical_rectification",
+  "name": "光整流效应",
+  "parent_id": "ch3_polarization",
+  "description": "二阶非线性过程产生的直流极化强度，可用于太赫兹波的产生和探测。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "phase_matching",
+  "name": "相位匹配条件",
+  "parent_id": "ch4_wave_mixing",
+  "description": "实现高效频率转换的必要条件，要求参与互作用的波矢满足动量守恒（Δk=0）。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "pm_bandwidth",
+  "name": "相位匹配带宽与允许参量",
+  "parent_id": "phase_matching",
+  "description": "相位匹配对角度、温度、波长的敏感程度。非临界相位匹配（θ=90°）可消除走离效应，放宽带宽。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "qpm_calculation",
+  "name": "QPM周期与效率计算",
+  "parent_id": "ch5_qpm",
+  "description": "QPM条件为Δk - K_g = 0，其中K_g=2π/Λ。一阶QPM效率最高，但场强降低为BPM的2/π倍。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "qpm_principle",
+  "name": "准相位匹配原理",
+  "parent_id": "ch5_qpm",
+  "description": "通过周期性反转极化方向（周期Λ）引入倒格矢补偿相位失配，实现相干积累。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "resonant_cavity",
+  "name": "谐振腔增强技术",
+  "parent_id": "ch7_devices",
+  "description": "利用光学谐振腔增强腔内光强，提高非线性转换效率，如外腔谐振倍频和OPO。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "root",
+  "name": "非线性光学",
+  "parent_id": null,
+  "description": "非线性光学是研究强光与物质相互作用时，介质极化响应不再与电场强度呈线性关系的学科。其核心在于非线性极化率（χ(2)、χ(3)等）引起的频率变换、折射率调制及光与光之间的相互作用。",
+  "learning_status": "pending_confirmation"
+ },
+ {
+  "node_id": "self_focusing",
+  "name": "自聚焦与克尔效应",
+  "parent_id": "third_order_effects",
+  "description": "强光引起介质折射率变化，导致光束自聚焦。是光学双稳态和光开关的基础。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "tensor_symmetry",
+  "name": "晶体对称性与张量化简",
+  "parent_id": "ch3_polarization",
+  "description": "利用诺依曼定理和点群对称性（如旋转、镜面）简化非线性极化率张量。中心对称介质无二阶非线性效应。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "third_order_effects",
+  "name": "三阶非线性效应分类",
+  "parent_id": "ch8_third_order",
+  "description": "包括克尔效应（折射率随光强变化）、四波混频、双光子吸收、光学相位共轭等。",
+  "learning_status": "unexplored"
+ },
+ {
+  "node_id": "walk_off",
+  "name": "走离效应",
+  "parent_id": "ch2_linear",
+  "description": "e光的能流方向（玻印廷矢量）与波矢方向不一致，导致光束空间分离，降低非线性转换效率。",
+  "learning_status": "unexplored"
+ }
+]

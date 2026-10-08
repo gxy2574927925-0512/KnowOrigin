@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-brand="default">
+<head>
+<meta charset="utf-8">
+<title>知源沉浸层 · 五场景预览</title>
+<!-- 引用真实样式链路（styles.css → literature → polish → immersive），所见即线上。
+     本页只复刻 DOM 结构与必要的演示排版；所有颜色 / 光晕 / 阴影均来自真实样式层。 -->
+<link rel="stylesheet" href="/static/styles.css?v=20261006-immersive-v1">
+<link rel="stylesheet" href="/static/styles-literature.css?v=20261006-immersive-v1">
+<link rel="stylesheet" href="/static/styles-polish.css?v=20261006-polish-v1">
+<link rel="stylesheet" href="/static/styles-immersive.css?v=20261006-immersive-v6">
+<style>
+  /* —— 演示外壳（不属于产品样式）—— */
+  body { padding: 34px 30px 70px; }
+  .wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 30px; }
+  .stage h2 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 10px; align-items: baseline; }
+  .stage h2 .n { color: var(--green-dark); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+  .stage .why { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+  .theme-bar {
+    position: sticky; top: 0; z-index: 50; display: flex; gap: 10px; align-items: center;
+    padding: 10px 14px; margin-bottom: 6px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel);
+  }
+  .theme-bar b { font-size: 13px; }
+  .theme-bar button {
+    padding: 5px 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .theme-bar button.on { border-color: var(--green); background: var(--green-soft); color: var(--green-dark); }
+
+  /* ko-kd 演示排版：真实页里这些由 knowledge-doc-ui.js 运行时注入，预览页补一份等价骨架 */
+  .ko-kd-demo { display: flex; flex-direction: column; height: 540px; border-radius: 14px; overflow: hidden; border: 1px solid var(--imm-hairline); }
+  .ko-kd-demo .ko-kd-main { flex: 1; display: flex; min-height: 0; }
+  .ko-kd-demo .ko-kd-toc { flex: 0 0 220px; overflow: auto; padding: 0 10px 30px 12px; }
+  .ko-kd-demo .ko-kd-body { flex: 1; overflow: auto; padding: 26px 26px 60px; }
+  .ko-kd-demo .ko-kd-toc-item { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink); cursor: pointer; padding: 5px 8px 5px 10px; font-size: 12.5px; border-left: 2px solid transparent; border-radius: 0 7px 7px 0; font-family: inherit; }
+  .ko-kd-toc-title { padding: 14px 8px 8px; font-size: 11px; color: var(--muted); letter-spacing: .1em; }
+
+  /* 图谱演示排版 */
+  .graph-demo .graph-node-card { fill: var(--panel); stroke: var(--line); }
+  .graph-demo .graph-node-title { fill: var(--ink); font-size: 12px; font-weight: 600; }
+  .graph-demo .graph-edge { stroke: var(--line); stroke-width: 1.5; }
+  .graph-demo .node-lit-card { fill: rgba(212, 168, 67, .14); stroke: rgba(212, 168, 67, .55); filter: drop-shadow(0 0 7px rgba(212, 168, 67, .5)); }
+
+  /* 卡片演示排版（真实类名，尺寸近似 studio 栏） */
+  .cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card.flip-card { min-height: 190px; }
+  .card-answer { margin: 0; color: var(--ink); font-size: 13.5px; line-height: 1.7; }
+  .flip-card-cue { margin-top: auto; color: var(--muted); font-size: 11px; }
+  .study-title-line { margin: 0; font-size: 14.5px; line-height: 1.6; }
+  .study-title-line strong { color: var(--ink); font-weight: 650; }
+
+  /* kb-* 演示外壳：真实 .kb-dock 是 position:fixed inset:0（整屏抽屉），
+     预览页里改成相对定位的一个块，才能和别的场景摆在一起。 */
+  .kb-dock.kb-dock-demo {
+    position: relative; inset: auto; height: 560px;
+    border: 1px solid var(--imm-hairline); border-radius: 14px; overflow: hidden;
+  }
+  .kb-dock-demo .kb-head-agent { display: flex; }
+  .kb-dock-demo .kb-pane { padding: 20px 24px 26px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="theme-bar">
+    <b>知源沉浸层预览</b>
+    <span style="color:var(--muted);font-size:12px">真实样式链路 · 五场景</span>
+    <span style="flex:1"></span>
+    <button id="btn-dark" class="on" type="button">深色 · 高级黑</button>
+    <button id="btn-light" type="button">浅色</button>
+    <span style="flex:1"></span>
+    <button id="btn-glow" type="button">卡片辉光：关</button>
+  </div>
+
+  <!-- ① 文档阅读 -->
+  <section class="stage">
+    <h2><span class="n">01</span>文档阅读 · 深夜书房</h2>
+    <p class="why">正文区最暗最静；目录退成侧幕，激活项带品牌色竖灯；顶栏玻璃化；进度条是发光灯丝。</p>
+    <div class="ko-kd-demo">
+      <div class="ko-kd-bar">
+        <span class="ko-kd-bar-title">谐振腔工程与稳定性判据</span>
+        <span class="ko-kd-bar-meta">更新于 10-06 · 约 3,200 字 · 4 节</span>
+      </div>
+      <div class="ko-kd-readbar"><div class="ko-kd-readbar-fill" style="width:38%"></div></div>
+      <div class="ko-kd-main">
+        <aside class="ko-kd-toc">
+          <div class="ko-kd-toc-title">目录</div>
+          <button class="ko-kd-toc-item">什么是光学谐振腔</button>
+          <button class="ko-kd-toc-item ko-kd-is-active">稳定性判据 g₁g₂</button>
+          <button class="ko-kd-toc-item ko-kd-is-sub">束腰与模式匹配</button>
+          <button class="ko-kd-toc-item ko-kd-is-sub">热透镜效应</button>
+          <button class="ko-kd-toc-item">腔损耗与输出耦合</button>
+        </aside>
+        <div class="ko-kd-body">
+          <div class="ko-kd-md">
+            <h1>稳定性判据 g₁g₂</h1>
+            <p>谐振腔对光的约束并非理所当然：只有当往返矩阵满足 <code>0 ≤ g₁g₂ ≤ 1</code> 时，腔内才存在稳定的低阶模。这个看似简单的不等式，决定了几乎所有激光器的结构取舍。</p>
+            <h2>为什么需要稳定腔</h2>
+            <p>光在腔内每往返一次都要经历衍射损耗与增益补偿。<strong>若 g₁g₂ 落在稳定区之外</strong>，光场每往返一次都会横向溢出，增益再高也建立不起振荡。</p>
+            <blockquote>直觉：稳定腔像一个"光学陷阱"——镜面曲率与腔长的组合必须让光每次往返都能自再现。</blockquote>
+            <h2>临界情形</h2>
+            <p>g₁g₂ = 0 与 g₁g₂ = 1 是两个临界边界：前者是共焦腔，后者是平行平面腔。平行平面腔对调准精度极其敏感，微弧度级的失准就会让损耗剧增。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 卡片 -->
+  <section class="stage">
+    <h2><span class="n">02</span>学习卡片 · 黑曜石</h2>
+    <p class="why">渐变卡面 + 顶部内高光 + 发丝边；悬停轻抬并带品牌色辉光；正面有一条随主题呼吸的釉面反光（把鼠标放到卡上试试）。</p>
+    <div class="cards-row">
+      <article class="card flip-card"><div class="flip-card-inner">
+        <div class="flip-card-face flip-card-front">
+          <p class="study-title-line"><strong>什么是激光器的振荡阈值？</strong></p>
+          <span class="flip-card-cue">点击卡片翻面 · 空格键也可以</span>
+        </div>
+        <div class="flip-card-face flip-card-back">
+          <p class="card-answer">腔内增益恰好等于总损耗时的工作点：g<sub>th</sub> = α<sub>i</sub> + α<sub>m</sub>。低于阈值只有荧光，高于阈值才有相干输出。</p>
+          <span class="flip-card-cue">再点一次翻回题面</span>
+        </div>
+      </div></article>
+      <article class="card flip-card"><div class="flip-card-inner">
+        <div class="flip-card-face flip-card-front">
+          <p class="study-title-line"><strong>共焦腔的 g₁g₂ 取值？</strong></p>
+          <span class="flip-card-cue">点击卡片翻面 · 空格键也可以</span>
+        </div>
+        <div class="flip-card-face flip-card-back">
+          <p class="card-answer">g₁ = g₂ = 0，即 g₁g₂ = 0，位于稳定区中心，对失调最不敏感，是折叠腔设计的常用起点。</p>
+          <span class="flip-card-cue">再点一次翻回题面</span>
+        </div>
+      </div></article>
+    </div>
+  </section>
+
+  <!-- ③ 小测验 -->
+  <section class="stage">
+    <h2><span class="n">03</span>小测验 · 聚光舞台</h2>
+    <p class="why">题卡顶部一束聚光；选项悬停如踩琴键亮起；对/错反馈带细光边。</p>
+    <article class="quiz-question">
+      <div class="review-item-heading"><span class="count-pill">第 1 题 · 单选 · 难度 2</span></div>
+      <p class="study-title-line"><strong>下列哪种腔型对镜失调最不敏感？</strong></p>
+      <div class="quiz-options">
+        <label class="opt-correct"><span class="opt-mark-correct">✓</span><input type="radio" name="dq" checked disabled><span class="quiz-option-text">共焦腔（g₁ = g₂ = 0）</span></label>
+        <label><input type="radio" name="dq" disabled><span class="quiz-option-text">平行平面腔（g₁ = g₂ = 1）</span></label>
+        <label class="opt-wrong"><span class="opt-mark-wrong">✗</span><input type="radio" name="dq" disabled><span class="quiz-option-text">大曲率半径近平行腔</span></label>
+      </div>
+      <div class="quiz-result wrong"><span>你的答案：平行平面腔（g₁ = g₂ = 1）</span><span>正确答案：共焦腔（g₁ = g₂ = 0）</span><span class="quiz-explanation">平行平面腔处于稳定区边界，失调容差最小；共焦腔位于稳定区中心。</span></div>
+    </article>
+  </section>
+
+  <!-- ④ 图谱 -->
+  <section class="stage">
+    <h2><span class="n">04</span>知识图谱 · 深空观测台</h2>
+    <p class="why">深空渐变底图 + 品牌色顶光；节点光晕更立体（金色为已点亮节点）。</p>
+    <div class="graph-wrap graph-demo" style="height:320px">
+      <svg class="framework-view" viewBox="0 0 1100 300" width="100%" height="100%">
+        <line class="graph-edge" x1="220" y1="150" x2="480" y2="80"/>
+        <line class="graph-edge" x1="220" y1="150" x2="480" y2="220"/>
+        <line class="graph-edge" x1="480" y1="80" x2="760" y2="140"/>
+        <g transform="translate(120,150)"><rect class="graph-node-card" x="-90" y="-26" width="180" height="52" rx="12"/><text class="graph-node-title" text-anchor="middle" y="5">激光原理</text></g>
+        <g transform="translate(560,80)"><rect class="node-lit-card" x="-80" y="-26" width="160" height="52" rx="12"/><text class="graph-node-title" text-anchor="middle" y="5">谐振腔工程</text></g>
+        <g transform="translate(560,220)"><rect class="graph-node-card" x="-80" y="-26" width="160" height="52" rx="12"/><text class="graph-node-title" text-anchor="middle" y="5">模式理论</text></g>
+        <g transform="translate(880,140)"><rect class="graph-node-card" x="-80" y="-26" width="160" height="52" rx="12"/><text class="graph-node-title" text-anchor="middle" y="5">调 Q 技术</text></g>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ⑤ 学习概览 -->
+  <section class="stage">
+    <h2><span class="n">05</span>学习概览 · 驾驶舱</h2>
+    <p class="why">hero 有纵深光幕；面板薄玻璃；知识点卡片悬停浮起 + 辉光。</p>
+    <div class="overview-dashboard" style="display:grid;gap:14px">
+      <div class="overview-hero">
+        <div><span>本周专注</span><h3>6.4 h</h3></div>
+        <div style="text-align:right;color:var(--muted);font-size:12px;line-height:1.8">连续学习 12 天<br>掌握度 38 / 128 · 待巩固 17</div>
+      </div>
+      <article class="overview-panel">
+        <div class="overview-section-heading">
+          <h3>优先巩固</h3><span>AI 建议</span>
+        </div>
+        <div class="overview-node-list" style="display:grid;gap:10px">
+          <div class="overview-node-card has-rank" style="padding:12px 14px">
+            <div class="study-title-line"><strong>1. 稳定性判据 g₁g₂</strong></div>
+            <small class="overview-node-status"><span class="status-chip">学习中</span><span>近 3 次测验错误 2 次</span></small>
+            <small class="overview-ai-suggestion"><span class="ai-spark">✦</span><span class="ai-text">建议先重读「临界情形」一节，再刷 3 道共焦腔判据题</span></small>
+          </div>
+          <div class="overview-node-card" style="padding:12px 14px">
+            <div class="study-title-line"><strong>2. 阈值增益与输出耦合</strong></div>
+            <small class="overview-node-status"><span class="status-chip">未开始</span><span>来自《激光原理》第 5 章</span></small>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ⑥ 整理助手与笔记 -->
+  <section class="stage">
+    <h2><span class="n">06</span>整理助手与笔记 · 统一高级黑</h2>
+    <p class="why">面板外壳 / 页签 / 笔记编辑与预览 / 结果卡全部并入同一套深色令牌；来源图谱的浅色卡片也换成深色面。</p>
+    <div class="kb-dock kb-dock-demo">
+      <div class="kb-dock-head">
+        <button class="kb-back" type="button">← 返回图谱</button>
+        <div class="kb-tabs">
+          <button class="kb-tab is-active" type="button">整理助手</button>
+          <button class="kb-tab" type="button">笔记</button>
+        </div>
+        <div class="kb-head-agent" style="display:flex">
+          <select><option>建议稿模式</option><option>引导模式</option></select>
+          <button class="head-button" type="button">补全当前节点笔记</button>
+        </div>
+        <button class="kb-close" type="button">×</button>
+      </div>
+      <div class="kb-pane">
+        <div class="kb-stepper">
+          <span class="kb-stepper-label">学习闭环</span>
+          <span class="kb-stepper-list"><b>① 读懂</b> · 2 讨论 · ✓ 练习 · 4 复习</span>
+          <span class="kb-stepper-next">下一步：写下你对这个节点的理解</span>
+        </div>
+        <div class="kb-note-head" style="margin-top:14px">
+          <div class="kb-note-title">
+            <strong>稳定性判据 g₁g₂</strong>
+            <span class="kb-note-meta">已同步 · 3 分钟前</span>
+            <span class="kb-memory-badge">已记忆 19 节点 · 薄弱 19 · 缺笔记 19</span>
+          </div>
+          <div class="kb-note-actions"><button class="mod-button" type="button">批准写入</button></div>
+        </div>
+        <div class="kb-note-toolbar">
+          <div class="kb-mode-tabs">
+            <button class="kb-mode-tab is-active" type="button">编辑</button>
+            <button class="kb-mode-tab" type="button">预览</button>
+          </div>
+          <span class="kb-save-state is-dirty">未保存</span>
+        </div>
+        <textarea class="kb-markdown-editor" style="min-height:150px">## 一句话摘要
+谐振腔能否稳定，取决于往返矩阵是否满足 0 ≤ g₁g₂ ≤ 1。
+
+## 要点索引
+- 稳定区：0 < g₁g₂ < 1
+- 临界：共焦腔 g₁g₂ = 0；平行平面腔 g₁g₂ = 1
+- 越界即横向溢出，增益再高也建立不起振荡</textarea>
+        <div class="kb-card-item" style="margin-top:14px">
+          <strong>AI 建议稿 · 易错点</strong>
+          <p style="margin:6px 0 0;color:var(--muted);font-size:12.5px">误以为"反射率越高输出越大" —— R₁R₂ → 1 时腔内几乎不漏光，外部取不到功率。</p>
+        </div>
+        <details class="kb-fold" open style="margin-top:14px">
+          <summary class="kb-fold-head"><span>知识卡片</span><span class="kb-fold-hint">1 张 · 复习用</span></summary>
+          <div class="kb-fold-body">
+            <span class="kb-tag-chip is-active">对比<i>1</i></span>
+            <span class="kb-tag-chip">调Q<i>3</i></span>
+            <div class="kb-ai-seg" style="margin-top:10px;display:inline-flex;gap:4px;padding:4px">
+              <button class="mini-button" type="button">生成知识卡片</button>
+              <button class="mini-button" type="button">生成小测验</button>
+              <button class="mini-button" type="button" data-kb-note-action="guide">苏格拉底引导</button>
+            </div>
+          </div>
+        </details>
+        <div class="kb-agent-messages" style="margin-top:16px;display:grid;gap:12px">
+          <div class="kb-agent-msg user-msg">
+            <div class="kb-agent-body">请以当前聚焦节点为锚，给出双链推荐：1) 列举知识库里已有节点之间值得建立的双链…</div>
+          </div>
+          <div class="kb-agent-msg">
+            <span class="kb-agent-role">整理助手</span>
+            <div class="kb-agent-body">基于当前聚焦节点「激光调制与偏振技术」及知识库现状，为您梳理双链推荐与图谱补全建议如下：<br><br><strong>1. 已有节点间的强关联双链推荐</strong><br>以下节点对之间存在明确的逻辑依赖关系，建议建立双向链接以形成知识闭环：<br>· 激光调制与偏振技术 → 电光调制原理</div>
+          </div>
+        </div>
+        <div class="kb-converge-bar" style="margin-top:12px">
+          <span class="kb-converge-job">构建双链 / 知识图谱</span>
+          <button class="mini-button" type="button" disabled>✓ 执行双链·新建节点</button>
+          <button class="mini-button" type="button" disabled>♻ 重做补全·调整关联</button>
+          <button class="mini-button" type="button">⏹ 停止整理</button>
+        </div>
+        <div class="kb-agent-composer" style="margin-top:10px">
+          <textarea rows="2" placeholder="跟整理助手聊聊，让它帮你梳理知识库…"></textarea>
+          <button class="primary-button" type="button">🎤 语音</button>
+          <button class="primary-button" type="button">发送</button>
+        </div>
+        <div class="kb-source-graph-demo" style="margin-top:14px">
+          <svg class="kb-source-graph" viewBox="0 0 900 200" width="100%" height="200">
+            <rect class="kb-src-canvas" width="900" height="200" fill="none"/>
+            <g class="kb-src-node" transform="translate(40,40)">
+              <rect class="kb-src-card" width="260" height="60" rx="10" fill="#ece7dc" stroke="#b9ae9c"/>
+              <rect class="kb-src-bar" width="4" height="32" x="12" y="12" fill="#8a8172"/>
+              <text class="kb-src-title" x="26" y="28">《激光原理》第 5 章</text>
+              <text class="kb-src-meta" x="26" y="46">PDF · 导入于 10-05</text>
+            </g>
+            <g class="kb-src-node" transform="translate(340,40)">
+              <rect class="kb-src-note-card" width="240" height="60" rx="10" fill="#f3ecfb" stroke="#a887cf"/>
+              <circle class="kb-src-note-dot" cx="20" cy="30" r="4" fill="#a887cf"/>
+              <text class="kb-src-note-text" x="34" y="34">阈值与输出耦合要一起看</text>
+            </g>
+            <text class="kb-src-hint" x="640" y="70">拖拽可平移画布 · 双击节点进入整理助手</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+<script>
+  const root = document.documentElement;
+  const bd = document.getElementById('btn-dark'), bl = document.getElementById('btn-light');
+  function setTheme(t) {
+    root.setAttribute('data-theme', t);
+    bd.classList.toggle('on', t === 'dark');
+    bl.classList.toggle('on', t !== 'dark');
+  }
+  bd.onclick = () => setTheme('dark');
+  bl.onclick = () => setTheme('light');
+  const bg = document.getElementById('btn-glow');
+  let glow = false;
+  function setGlow(on) {
+    glow = on;
+    root.setAttribute('data-glow', on ? 'on' : 'off');
+    bg.classList.toggle('on', on);
+    bg.textContent = `卡片辉光：${on ? '开' : '关'}`;
+  }
+  bg.onclick = () => setGlow(!glow);
+  setGlow(false);
+  // 卡片翻面演示
+  document.querySelectorAll('.card.flip-card').forEach((card) => {
+    card.addEventListener('click', () => card.querySelector('.flip-card-inner').classList.toggle('is-flipped'));
+  });
+</script>
+</body>
+</html>

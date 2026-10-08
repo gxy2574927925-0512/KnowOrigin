@@ -455,6 +455,45 @@ def _read_local_api_config(data_dir: Path) -> dict[str, str]:
     return payload if isinstance(payload, dict) else {}
 
 
+def read_extra_local_secret(data_dir: Path, key: str) -> str:
+    """读一项「模型之外」的本地凭据（例如微信读书的 ``wrk-`` Key）。
+
+    与模型密钥走**同一个文件、同一套加密**（DPAPI 密文，非 Windows 退化为明文），
+    所以「重启不用重填」这条对读书功能同样成立。读不到就返回空串。
+    """
+    payload = _read_local_api_config(data_dir)
+    raw = payload.get(str(key) or "")
+    if not isinstance(raw, str) or not raw.strip():
+        return ""
+    try:
+        return _decode_secret(raw).strip()
+    except Exception:
+        return ""
+
+
+def save_extra_local_secret(data_dir: Path, key: str, value: str) -> None:
+    """把一项额外凭据写进 ``data/local_api_config.json``。
+
+    与 ``save_local_api_config`` 用同一套落盘方式（加密 + 临时文件原子替换），
+    但**不碰模型那几项** —— 两条凭据各写各的，不会互相覆盖。
+    ``value`` 为空即删除该项（用户主动清空要能覆盖掉旧值）。
+    """
+    name = str(key or "").strip()
+    if not name:
+        raise ValueError("凭据名不能为空")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = data_dir / "local_api_config.json"
+    temporary = path.with_suffix(".tmp")
+    payload = _read_local_api_config(data_dir)
+    text = str(value or "").strip()
+    if text:
+        payload[name] = _encode_secret(text)
+    else:
+        payload.pop(name, None)
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
 def save_local_api_config(settings: Settings) -> None:
     """Persist local-only model settings, secrets included but encrypted.
 

@@ -54,7 +54,7 @@
     askSection: "",
     askBusy: false,
     askPaintAt: 0,
-    askExtra: false, // 「也讲材料外」：默认 false —— 材料外直说没写（2026-10-05）
+    askExtra: true, // 「也讲材料外」：默认 true —— 优先放开材料外补充（2026-10-07）
     order: "tree",  // 合订排序口径：tree = 按框架章节；layer = 按前置层号（由浅入深）
     maxLayer: 0,    // 只收进第 1~N 层；0 = 全要
     layers: [],     // 每层的知识点数（/knowledge-doc/layers）
@@ -788,6 +788,10 @@
       "</div>";
     document.body.appendChild(node);
     wireOverlay();
+    // 把 VIEW.askExtra 的默认值同步到 DOM —— checkbox 的 checked 属性虽然写在 HTML 里，
+    // 但 wrap 上表示「当前在发散档」的 class 还得靠 setAskExtra 一下，否则默认档的灰字、
+    // 散档的深字第一次打开会有视觉跳变。
+    setAskExtra(VIEW.askExtra);
     return node;
   }
 
@@ -808,13 +812,13 @@
           '<textarea class="ko-kd-ask-input" id="ko-kd-ask-input" rows="3" ' +
             'placeholder="就着这一节提问…（Enter 发送，Shift+Enter 换行）"></textarea>' +
           '<div class="ko-kd-ask-mode" id="ko-kd-ask-mode">' +
-            '<input type="checkbox" id="ko-kd-ask-extra" data-kd-ask-extra>' +
+            '<input type="checkbox" id="ko-kd-ask-extra" data-kd-ask-extra checked>' +
             '<label for="ko-kd-ask-extra" ' +
               'title="勾上后材料外确实需要的知识也会答，但会单独放进「材料外补充」一段">' +
               "也讲材料外</label>" +
           "</div>" +
           '<div class="ko-kd-ask-actions">' +
-            '<span class="ko-kd-ask-hint" id="ko-kd-ask-hint">只依据这一节的材料作答，没写的它会直说。</span>' +
+            '<span class="ko-kd-ask-hint" id="ko-kd-ask-hint">正在读材料，并准备材料外的补充…</span>' +
             '<button type="button" class="ko-kd-btn ko-kd-btn-primary" id="ko-kd-ask-send" data-kd-ask-send>发送</button>' +
           "</div>" +
         "</div>" +
@@ -1047,7 +1051,7 @@
     VIEW.askRef = "";
     VIEW.askSection = "";
     VIEW.askBusy = false;
-    setAskExtra(false);
+    setAskExtra(true);  // 「也讲材料外」默认勾选 —— 切文档也跟着回到默认
     closeAsk();
     paintAskRef();
     paintAsk();
@@ -1382,8 +1386,8 @@
     if (!VIEW.askThread.length) {
       thread.innerHTML =
         '<div class="ko-kd-ask-empty">选中正文里的一段话，点浮出来的「问 AI」；' +
-        "也可以直接把问题写在下面。<br>默认只依据这一节的材料 —— 材料里没有的，它会说没有；" +
-        "需要材料外的知识时，勾上「也讲材料外」，补充会单独标出来。</div>";
+        "也可以直接把问题写在下面。<br>默认**也讲材料外** —— 材料里没有的，会先按通识补，补充会单独放进「材料外补充」一段；" +
+        "想严守本节材料就取消勾选，没写的它会直说。</div>";
       return;
     }
     var html = "";

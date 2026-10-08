@@ -39,6 +39,8 @@ from config import (
     DEFAULT_LIBRARY_LINKS,
     Settings,
     load_settings,
+    read_extra_local_secret,
+    save_extra_local_secret,
     save_local_api_config,
 )
 from core.database import (
@@ -105,6 +107,15 @@ from core.study_kit import StudyKitStore
 from core.node_study_plan import NodeStudyPlanStore, cache_key_for, signature_for
 from core import knowledge_doc as knowledge_doc_mod
 from core.knowledge_doc import KnowledgeDocStore, Neighbor
+# 读书：多书源适配（book_sources）+ 结构化收获引擎（reading_digest）+ 数据层（reading_store）。
+# 三个模块都是纯逻辑，不碰 api_server 的闭包，便于单独测试。
+from core import book_sources as book_sources_mod
+from core import reading_digest as reading_digest_mod
+from core import reading_store as reading_store_mod
+from core.reading_store import ReadingStore
+from core import weread as weread_mod
+from core import knowledge_net as knowledge_net_mod
+from core.knowledge_net import NetStore
 from core.teaching_mode import TeachingPrefs
 from core import evidence_matrix as matrix_mod
 from core.evidence_matrix import EvidenceMatrixStore
@@ -24558,6 +24569,136 @@ def create_app(
         )
         return {"kit": saved, "kinds": _study_kit_kinds()}
 
+    @application.post("/api/projects/{project_id}/study-kit/ask")
+    async def ask_study_kit(project_id: str, request: Request) -> StreamingResponse:
+        """就着「学习文档」（速查表 / 学习路径 / 清单报告）提问，答案以 SSE 流式返回。
+
+        与 ``/knowledge-doc/ask`` 是同一套证据边界与同一套提示词，**只换了材料来源**：
+        那边读知识点文档（``knowledge_docs``），这边读三类成文产物（``study_kits``）。
+        为什么不复用那个端点：它的 ``scope=project`` 写死了去读合订稿，拿它来答
+        「速查表里这条为什么这么写」会答成另一份文档的内容。
+
+        边界（与生成阶段一致，别在这里放松）：默认只依据这份文档作答，材料里没写的
+        直说没写；``allow_extra=true`` 是第二档，材料外的知识可以答但必须放进
+        ``## 材料外补充`` 整段自报家门。
+
+        body: ``{question, kind?, selection?, section?, history?, allow_extra?}``。
+        ``kind`` 指定以哪一份为主 —— 三份都会带上，只是把它排在前面（``excerpt_around``
+        定位不到时会退回头部截断，排前面才不会被挤出去）。
+        """
+        user = require_user(request)
+        require_project_access(project_id, request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        question = str(body.get("question") or "").strip()
+        if not question:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("study_kit_question_required", "先写一句想问的问题。"),
+            )
+        if not application.state.settings.tju_api_key:
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload(
+                    "api_key_required",
+                    "提问需要大模型 API。请先配置 API Key：登录后在「API 配置」页填写，"
+                    "或编辑 .env 设置 TJU_API_KEY。",
+                ),
+            )
+
+        kits = await asyncio.to_thread(study_kit_store().list_for_project, project_id)
+        # 只收**项目级**那一份（node_id 为空）—— 与前端「学习文档」同一口径：
+        # 节点级窄表混进来，这份「整份文档」就变成了某个知识点的表。
+        available = {
+            str(kit.get("kind") or ""): kit
+            for kit in kits
+            if kit and not kit.get("node_id") and str(kit.get("content_md") or "").strip()
+        }
+        if not available:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload(
+                    "study_kit_not_generated",
+                    "这门课还没有学习文档。先生成速查表 / 学习路径 / 清单报告中的任意一份，再来提问。",
+                ),
+            )
+        focus = study_kit_mod.normalize_kind(body.get("kind"))
+        ordered = [focus] + [key for key in study_kit_mod.KINDS if key != focus]
+        context = "\n\n".join(
+            f"## {study_kit_mod.KIND_LABELS[key]}\n\n{str(available[key]['content_md']).strip()}"
+            for key in ordered
+            if key in available
+        )
+        selection = str(body.get("selection") or "")
+        section = str(body.get("section") or "")
+        # 没选中原文时用「当前小节标题」当定位探针：三份合起来常超过 ASK_MAX_CONTEXT，
+        # 不定位就退成头部截断 —— 用户明明在读清单报告，模型手里却只有速查表。
+        context = knowledge_doc_mod.excerpt_around(context, selection or section)
+        allow_extra = bool(body.get("allow_extra"))
+
+        payload = knowledge_doc_mod.build_ask_payload(
+            question=question,
+            selection=selection,
+            scope="project",
+            context=context,
+            section=section,
+            history=body.get("history") if isinstance(body.get("history"), list) else [],
+            allow_extra=allow_extra,
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": stream_system_prompt(
+                    "ask_knowledge_doc", ask_allow_extra=allow_extra
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"task": "ask_knowledge_doc", "payload": payload}, ensure_ascii=False
+                ),
+            },
+        ]
+
+        def _kit_sse(event: dict[str, Any]) -> str:
+            return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        async def event_stream() -> AsyncIterator[str]:
+            yield _kit_sse(
+                {
+                    "type": "start",
+                    "kits": [key for key in ordered if key in available],
+                    "context_chars": len(context),
+                }
+            )
+            pieces: list[str] = []
+            try:
+                async for chunk in application.state.llm.astream_chat_content(
+                    messages, "ask_knowledge_doc"
+                ):
+                    pieces.append(chunk)
+                    yield _kit_sse({"type": "delta", "text": chunk})
+            except Exception as exc:  # noqa: BLE001 —— 要变成人能看懂的一句话，不是堆栈
+                LOGGER.warning("study kit ask failed: %s", exc)
+                yield _kit_sse({"type": "error", "message": f"这次没答上来：{exc}"})
+                return
+            answer = knowledge_doc_mod.clean_answer("".join(pieces))
+            if not answer:
+                yield _kit_sse(
+                    {"type": "error", "message": "模型这次没有返回内容，可以再问一次。"}
+                )
+                return
+            yield _kit_sse({"type": "done", "text": answer})
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     # —— 知识点文档（2026-09-30）：单节点「复习用详解」 + 按框架层级合订整份 ——
     # 质量机制：一次只讲一个知识点；
     # 结构化字段逐项校验（哪一项不合格就只退那一项的本地兜底，其余照用）；
@@ -24625,6 +24766,1412 @@ def create_app(
         必须用同一个顺序来标，放两处早晚会不一致。
         """
         return knowledge_doc_mod.tree_order(nodes)
+
+    # ------------------------------------------------------------------
+    # 读书（Reading）
+    #
+    # 两件自动化（这是本模块与「文献精读」最大的不同）：
+    #   1. **按需建项目** —— 项目承载框架 / 卡片 / 测验 / 掌握度 / 撤销 / 导出，
+    #      但**加入书架时不再凭空建**：只有真要往里放东西时（导入 / 取回正文、
+    #      生成收获沉淀卡片）才建。刚加入的书往往只有元数据、没有资料，
+    #      给它建空项目只会把侧栏塞满；
+    #   2. **收获自动沉淀为知识卡片** —— 生成《读书收获》时把自测题回流进 cards 表
+    #      （前缀 rd_，机制照搬 knowledge_doc）。
+    #
+    # 多书源是「获取正文」的解 —— 微信读书只给书架/封面/划线，**给不了整本正文**，
+    # 所以公版书走古腾堡/维基文库，本地书走导入，商业书只保留元数据与外链。
+    # ------------------------------------------------------------------
+
+    def reading_store() -> ReadingStore:
+        return _aux_store("reading", ReadingStore)
+
+    def _reading_project_for(owner_id: str, book_key: str) -> str:
+        """确保这本书有项目并返回 project_id（没有就建）。
+
+        **按需调用** —— 只在真的要往项目里放东西时才建（导入 / 取回正文、
+        生成收获沉淀卡片）。加入书架本身不再触发它。
+        """
+        return reading_store().ensure_project(
+            owner_id,
+            book_key,
+            create_project=lambda title: db.create_book_project(owner_id, title).project_id,
+        )
+
+    def _reading_book_or_404(owner_id: str, book_key: str) -> dict[str, Any]:
+        book = reading_store().get_book(owner_id, book_key)
+        if not book:
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload("reading_book_not_found", "书架里没有这本书。"),
+            )
+        return book
+
+    def _reading_signature(highlights: Any, thoughts: Any) -> str:
+        """划线 + 想法的指纹。正文变了才需要重新生成，避免无谓的模型调用。"""
+        parts: list[str] = []
+        for group in (highlights, thoughts):
+            if isinstance(group, list):
+                for item in group:
+                    if isinstance(item, dict):
+                        parts.append(str(item.get("mark_text") or item.get("text") or item.get("content") or ""))
+        blob = "\n".join(parts)
+        return hashlib.sha1(blob.encode("utf-8", "replace")).hexdigest()[:16]
+
+    @application.get("/api/reading/sources")
+    async def reading_sources(request: Request) -> dict[str, Any]:
+        """书源能力清单：每个源能给全文 / 只能给元数据 / 只能外链，以及版权状态。"""
+        require_user(request)
+        return {"sources": book_sources_mod.list_sources()}
+
+    @application.post("/api/reading/search")
+    async def reading_search(request: Request) -> dict[str, Any]:
+        """跨书源搜书。单源失败只算 0 条，不影响其它源。"""
+        require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        query = str(body.get("query") or "").strip()
+        if not query:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("reading_query_required", "先写一句要搜的书名或作者。"),
+            )
+        raw_sources = body.get("sources")
+        source_ids = [str(s) for s in raw_sources] if isinstance(raw_sources, list) else None
+        try:
+            limit = int(body.get("limit") or 8)
+        except Exception:
+            limit = 8
+        result = await asyncio.to_thread(
+            book_sources_mod.search_books,
+            query,
+            source_ids=source_ids,
+            limit_per_source=limit,
+        )
+        records = result.get("results") or []
+        # 需要代理却还没配的源：前端要把这句话说出来，否则「线路不通」会被
+        # 用户读成「这个功能没做」。
+        blocked = [
+            s["id"] for s in book_sources_mod.list_sources()
+            if s.get("blocked") and s.get("searchable")
+        ]
+        return {
+            "query": result.get("query", ""),
+            "results": records,
+            "sources": result.get("sources", {}),
+            # 把「书源是否可达」一并带出去 —— 前端要靠它把「网络连不上」和
+            # 「确实没这本书」分开显示，否则零结果会被误读成功能没做。
+            "source_status": result.get("source_status", {}),
+            "all_failed": bool(result.get("all_failed")),
+            "blocked_sources": blocked,
+            "proxy_in_use": book_sources_mod.using_proxy(),
+            "groups": book_sources_mod.group_by_category(records),
+            "summary": book_sources_mod.fulltext_summary(records),
+        }
+
+    @application.get("/api/reading/books")
+    async def reading_list_books(request: Request, category: str = "") -> dict[str, Any]:
+        """我的书架（本地缓存，按一级领域分组）。"""
+        user = require_user(request)
+        books = await asyncio.to_thread(
+            reading_store().list_books, user.user_id, category=category.strip()
+        )
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        for book in books:
+            buckets.setdefault(book.get("category") or "其他", []).append(book)
+        groups = [
+            {"category": name, "count": len(items), "books": items}
+            for name, items in sorted(buckets.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+        ]
+        return {
+            "books": books,
+            "groups": groups,
+            "summary": {
+                "total": len(books),
+                "reading": len([b for b in books if b.get("reading_status") == "reading"]),
+                "finished": len([b for b in books if int(b.get("progress") or 0) >= 100]),
+                "fulltext": len([b for b in books if b.get("has_fulltext")]),
+            },
+        }
+
+    @application.post("/api/reading/books", status_code=201)
+    async def reading_add_book(request: Request) -> dict[str, Any]:
+        """把一本书加入书架。
+
+        **默认不建项目** —— 刚加入的书通常只有元数据、没有资料，为它凭空建一个
+        空项目只会把侧栏塞满。只有调用方显式要求（``with_project=True``，用于
+        「本地导入」「导入正文」这类马上要往里放资料的场景）时，才顺手把项目建好；
+        生成收获、取回正文也会各自按需建，不依赖这里。
+        """
+        user = require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        record = body.get("book") if isinstance(body.get("book"), dict) else body
+        book = await asyncio.to_thread(reading_store().upsert_book, user.user_id, record)
+        if not book:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload(
+                    "reading_book_invalid",
+                    "这本书缺少来源标识或书名，无法加入书架。",
+                ),
+            )
+        # 已有项目就沿用；没项目且调用方明确要，才建。
+        project_id = str(book.get("project_id") or "")
+        if not project_id and body.get("with_project"):
+            project_id = await asyncio.to_thread(
+                _reading_project_for, user.user_id, book["book_key"]
+            )
+        return {"book": {**book, "project_id": project_id}, "project_id": project_id}
+
+    @application.get("/api/reading/books/{book_key}")
+    async def reading_book_detail(book_key: str, request: Request) -> dict[str, Any]:
+        user = require_user(request)
+        book = await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        store = reading_store()
+        digest = await asyncio.to_thread(store.get_doc, user.user_id, book_key, "digest")
+        intro = await asyncio.to_thread(store.get_doc, user.user_id, book_key, "intro")
+        # 书源侧的简介（成段材料）。拉不到就空串，不报错 —— 它是增强不是依赖。
+        book_intro = ""
+        if not intro:
+            book_intro = await asyncio.to_thread(_reading_book_intro, book)
+        return {
+            "book": book,
+            "digest": digest or None,
+            "intro": intro or None,
+            "book_intro": book_intro,
+        }
+
+    @application.put("/api/reading/books/{book_key}/doc")
+    async def reading_save_doc(book_key: str, request: Request) -> dict[str, Any]:
+        """手工编辑正文。只改 ``content_md``，结构化留档与指纹不动。"""
+        user = require_user(request)
+        await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        kind = reading_store_mod.normalize_kind(body.get("kind"))
+        content = str(body.get("content_md") or "")
+        if not content.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("reading_content_required", "正文不能为空。"),
+            )
+        try:
+            doc = await asyncio.to_thread(
+                reading_store().save_markdown, user.user_id, book_key, content, kind
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("reading_content_required", str(exc)),
+            ) from exc
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload("reading_doc_not_found", "还没有生成过这份文档，先生成再编辑。"),
+            )
+        return {"doc": doc}
+
+    async def _generate_reading_digest(
+        user: Any, book: dict[str, Any], body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """生成一本书的《读书收获》并沉淀卡片。**单本路由与批量路由共用这一个实现。**
+
+        抽出来是为了批量：书架上有十本书时，用户不该一本一本点。
+        逻辑一行都没改，只是把「取 body / 取 book」留给调用方。
+        """
+        book_key = str(book.get("book_key") or "")
+        body = body if isinstance(body, dict) else {}
+        highlights = body.get("highlights") if isinstance(body.get("highlights"), list) else []
+        thoughts = body.get("thoughts") if isinstance(body.get("thoughts"), list) else []
+        reviews = body.get("reviews") if isinstance(body.get("reviews"), list) else []
+        excerpts = body.get("excerpts") if isinstance(body.get("excerpts"), list) else []
+        chapters_in = body.get("chapters") if isinstance(body.get("chapters"), list) else []
+
+        source = str(book.get("source") or "")
+        # 微信读书的书：**服务端自己把材料拉齐**（章节目录 + 热门划线 + 用户自己的划线）。
+        # 让前端去拉会漏、也会因网络抖动少一块；这里拉齐了，「逐章精读」才有料。
+        if source == "weread":
+            if not chapters_in:
+                chapters_in = await asyncio.to_thread(
+                    lambda: weread_mod.outline_chapters(
+                        _weread_grouped_outline(book["source_id"])
+                    )
+                )
+            if not highlights and not thoughts:
+                try:
+                    fetched = await asyncio.to_thread(_fetch_weread_notes, book["source_id"])
+                    highlights = fetched.get("highlights") or []
+                    thoughts = fetched.get("thoughts") or []
+                except Exception:
+                    pass
+
+        project_id = await asyncio.to_thread(_reading_project_for, user.user_id, book_key)
+        title = str(book.get("title") or "")
+        author = str(book.get("author") or "")
+
+        # 本地导入 / 公版书：把项目资料正文喂进去（那份才是真全文）。
+        # **优先按章切** —— 切得出章节，收获就能逐章展开。
+        if source != "weread" and not excerpts and not chapters_in:
+            # ⚠️ 用刚 ensure 出来的 ``project_id``，不是 ``book`` 里那个旧值 ——
+            # 惰性建项目后，书可能到这一刻才第一次有项目。
+            local_chapters, local_excerpts = await asyncio.to_thread(
+                _reading_material_for, project_id
+            )
+            chapters_in = local_chapters
+            excerpts = local_excerpts
+
+        # 简介：前端没给就自己去书源拉。它是唯一的**成段材料** —— 少了它，
+        # 模型只能把「20 条金句 + 章节标题」重新排列，产出必然还是碎片。
+        book_intro = str(body.get("book_intro") or "").strip()
+        if not book_intro:
+            book_intro = await asyncio.to_thread(_reading_book_intro, book)
+
+        payload = reading_digest_mod.build_digest_payload(
+            title=title,
+            author=author,
+            book_intro=book_intro,
+            highlights=highlights,
+            thoughts=thoughts,
+            reviews=reviews,
+            progress=int(book.get("progress") or 0),
+            chapters=chapters_in,
+            excerpts=excerpts,
+        )
+        result: dict[str, Any] = {}
+        used_fallback = False
+        insufficient = False
+        material = payload.get("material") or {}
+        if reading_digest_mod.material_is_empty(material):
+            # 简介 / 目录 / 划线**全空**时绝不调模型 —— 它没有可依据的东西，
+            # 只会拿训练数据里对这本书的印象把 schema 填满，产出一篇
+            # 读着像模像样、实则与这本书无关的文档（「无效信息太多」的元凶）。
+            result = reading_digest_mod.build_insufficient_digest(title=title, material=material)
+            insufficient = True
+        elif application.state.settings.tju_api_key or application.state.llm.responder is not None:
+            try:
+                raw = await asyncio.to_thread(
+                    application.state.llm.complete_json, "make_reading_digest", payload
+                )
+                result = reading_digest_mod.normalize_digest_result(raw, {})
+            except Exception:  # noqa: BLE001 —— 生成失败要走本地兜底，不是 500
+                result = {}
+        if not insufficient and not reading_digest_mod.digest_has_content(result):
+            result = reading_digest_mod.build_digest_fallback(
+                title=title, highlights=highlights, thoughts=thoughts
+            )
+            used_fallback = True
+        # 「这份文档到底是什么」的如实声明由**系统**给出，不经模型 ——
+        # 没有个人划线时它挂在正文最前面，读者才不会把「书籍导读」当成自己的收获。
+        material = payload.get("material") or {}
+        scope_note = reading_digest_mod.digest_scope_note(material)
+        heading = "读书收获" if payload.get("mode") == "personal" else "书籍导读"
+        content_md = reading_digest_mod.render_digest_markdown(
+            result, title=title, author=author, scope_note=scope_note, heading=heading
+        )
+
+        doc = await asyncio.to_thread(
+            reading_store().save_doc,
+            owner_id=user.user_id,
+            book_key=book_key,
+            kind="digest",
+            title=f"{title} · {heading}",
+            result=result,
+            content_md=content_md,
+            signature=_reading_signature(highlights, thoughts),
+            project_id=project_id,
+        )
+        wanted = reading_store_mod.build_sync_cards(result, book_key=book_key)
+        synced = await asyncio.to_thread(
+            reading_store_mod.sync_cards, db, project_id, wanted=wanted
+        )
+        return {
+            "doc": doc,
+            "cards": synced,
+            "project_id": project_id,
+            "fallback": used_fallback,
+            "insufficient": insufficient,
+            "mode": payload.get("mode") or "personal",
+        }
+
+    @application.post("/api/reading/books/{book_key}/digest")
+    async def reading_generate_digest(book_key: str, request: Request) -> dict[str, Any]:
+        """生成《读书收获》，并**自动把自测题沉淀为该书项目的知识卡片**。
+
+        body: ``{highlights?, thoughts?, reviews?, book_intro?}`` —— 划线/想法由前端从
+        书源取来（微信读书走 ``/book/bookmarklist``，本地书走正文解析）。模型不可用时
+        自动退化为本地兜底（只原样呈现用户自己的划线，**不编造**）。
+        """
+        user = require_user(request)
+        book = await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        return await _generate_reading_digest(user, book, body if isinstance(body, dict) else {})
+
+    async def _generate_reading_intro(
+        user: Any, book: dict[str, Any], body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """生成一本书的【检视结论 + 介绍】。
+
+        对应《如何阅读一本书》的**检视阅读**：不读全书，只凭简介、目录与用户自己的划线，
+        判断这本书**值不值得读、该用哪档力气读、先读哪几章**。
+        「这本书不用读」是一个合法的、而且是高频的结论 —— 所以 `read_mode` 会被要求真分档。
+        """
+        book_key = str(book.get("book_key") or "")
+        body = body if isinstance(body, dict) else {}
+        highlights = body.get("highlights") if isinstance(body.get("highlights"), list) else []
+        thoughts = body.get("thoughts") if isinstance(body.get("thoughts"), list) else []
+
+        if str(book.get("source") or "") == "weread" and not highlights and not thoughts:
+            try:
+                fetched = await asyncio.to_thread(_fetch_weread_notes, book["source_id"])
+                highlights = fetched.get("highlights") or []
+                thoughts = fetched.get("thoughts") or []
+            except Exception:  # noqa: BLE001 —— 划线是增强，拉不到不代表不能检视
+                pass
+
+        book_intro = str(body.get("book_intro") or "").strip()
+        if not book_intro:
+            book_intro = await asyncio.to_thread(_reading_book_intro, book)
+
+        payload = reading_digest_mod.build_intro_payload(
+            title=str(book.get("title") or ""),
+            author=str(book.get("author") or ""),
+            native_category=str(book.get("category") or ""),
+            book_intro=book_intro,
+            highlights=highlights,
+            thoughts=thoughts,
+        )
+        result: dict[str, Any] = {}
+        used_fallback = False
+        if application.state.settings.tju_api_key or application.state.llm.responder is not None:
+            try:
+                raw = await asyncio.to_thread(
+                    application.state.llm.complete_json, "make_book_intro", payload
+                )
+                result = reading_digest_mod.normalize_intro_result(raw, {})
+            except Exception:  # noqa: BLE001
+                result = {}
+        if not (result.get("intro") or result.get("one_liner")):
+            result = reading_digest_mod.build_intro_fallback(
+                title=str(book.get("title") or ""),
+                author=str(book.get("author") or ""),
+                native_category=str(book.get("category") or ""),
+                book_intro=book_intro,
+            )
+            used_fallback = True
+        # 分类顺手落回书架：检视时 AI 给的领域往往比「按书名猜」准。
+        if result.get("category") and result["category"] != "其他":
+            try:
+                await asyncio.to_thread(
+                    reading_store().upsert_book,
+                    user.user_id,
+                    {**book, "category": result["category"]},
+                )
+            except Exception:  # noqa: BLE001 —— 分类是顺带的，失败不该让整次检视挂掉
+                pass
+
+        project_id = str(book.get("project_id") or "")
+        doc = await asyncio.to_thread(
+            reading_store().save_doc,
+            owner_id=user.user_id,
+            book_key=book_key,
+            kind="intro",
+            title=f"{book.get('title') or ''} · 书籍检视",
+            result=result,
+            content_md=reading_digest_mod.render_intro_markdown(
+                result, title=str(book.get("title") or "")
+            ),
+            signature=_reading_signature(highlights, thoughts),
+            project_id=project_id,
+        )
+        return {"doc": doc, "fallback": used_fallback}
+
+    @application.post("/api/reading/books/{book_key}/intro")
+    async def reading_generate_intro(book_key: str, request: Request) -> dict[str, Any]:
+        """生成《书籍检视》：值不值得读 / 用哪档力气读 / 先读哪几章。"""
+        user = require_user(request)
+        book = await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        return await _generate_reading_intro(user, book, body if isinstance(body, dict) else {})
+
+    @application.post("/api/reading/digests/generate-missing")
+    async def reading_generate_missing_digests(request: Request) -> dict[str, Any]:
+        """**一键补全**：给所有还没有收获的书批量生成。
+
+        为什么需要它：知识网络的节点来自各书的「可复用模型」，一本都没生成时网络是空的；
+        而书一多，一本一本点就成了负担。批量跑完，网络才有东西可连。
+
+        body: ``{limit?: int}`` —— 单次上限（默认 8，最大 20）。
+        **逐本 try**：某本书失败（模型超时、书源挂了）不影响其余，失败原因回传给前端。
+        """
+        user = require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        try:
+            limit = int(body.get("limit", 8))
+        except Exception:
+            limit = 8
+        limit = max(1, min(limit, 20))
+
+        store = reading_store()
+        pending: list[dict[str, Any]] = []
+        for book in await asyncio.to_thread(store.list_books, user.user_id):
+            existing = await asyncio.to_thread(
+                store.get_doc, user.user_id, book["book_key"], "digest"
+            )
+            if existing:
+                continue
+            pending.append(book)
+            if len(pending) >= limit:
+                break
+
+        done: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        for book in pending:
+            try:
+                result = await _generate_reading_digest(user, book, {})
+                done.append(
+                    {
+                        "book_key": book["book_key"],
+                        "title": book.get("title") or "",
+                        "cards": (result.get("cards") or {}).get("synced", 0),
+                        "fallback": bool(result.get("fallback")),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 —— 逐本兜，不让一本拖垮整批
+                failed.append(
+                    {"book_key": book["book_key"], "title": book.get("title") or "",
+                     "error": f"{type(exc).__name__}: {exc}"[:200]}
+                )
+        return {
+            "generated": len(done),
+            "failed": len(failed),
+            "remaining": max(0, len(pending) - limit) if len(pending) >= limit else 0,
+            "books": done,
+            "errors": failed,
+        }
+
+    @application.get("/api/reading/books/{book_key}/cards")
+    async def reading_book_cards(book_key: str, request: Request) -> dict[str, Any]:
+        """这本书沉淀出来的知识卡片（只列回流卡，用户手工建的卡不在这里）。"""
+        user = require_user(request)
+        book = await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        project_id = str(book.get("project_id") or "")
+        if not project_id:
+            return {"cards": []}
+        cards = await asyncio.to_thread(db.list_cards, project_id)
+        return {
+            "cards": [
+                {"card_id": c.card_id, "front": c.front, "back": c.back, "category": c.category}
+                for c in cards
+                if str(getattr(c, "card_id", "") or "").startswith(reading_store_mod.SYNC_CARD_PREFIX)
+            ]
+        }
+
+    # ---- 微信读书：书架同步（元数据 + 划线；**不含正文**）----
+
+    # 本地凭据文件里的键名。值与模型密钥同一套 DPAPI 加密，存在 data/（已 gitignore）。
+    _WEREAD_KEY_SLOT = "weread_api_key"
+
+    def _weread_key() -> tuple[str, str]:
+        """解析微信读书 Key，返回 ``(key, 来源)``。
+
+        **绝不落任何日志**：只回传来源名（env / config），不回传 key 本身。
+        """
+        env_key = str(os.environ.get("WEREAD_API_KEY") or "").strip()
+        if env_key:
+            return env_key, "env"
+        try:
+            stored = read_extra_local_secret(application.state.settings.data_dir, _WEREAD_KEY_SLOT)
+        except Exception:
+            stored = ""
+        return (stored, "config") if stored else ("", "")
+
+    def _weread_client() -> weread_mod.WereadClient:
+        key, _ = _weread_key()
+        return weread_mod.WereadClient(key)
+
+    @application.get("/api/reading/weread/status")
+    async def weread_status(request: Request, probe: int = 0) -> dict[str, Any]:
+        """微信读书连接状态。``probe=1`` 时真的打一次接口验证 Key 是否有效。"""
+        require_user(request)
+        key, origin = _weread_key()
+        payload: dict[str, Any] = {
+            "configured": bool(key),
+            "origin": origin,
+            "capabilities": {
+                "shelf": True,
+                "cover": True,
+                "progress": True,
+                "notes": True,
+                "fulltext": False,   # 微信读书不提供正文，这是商业边界
+            },
+            "note": "微信读书只提供书架、封面、进度与你的划线；整本正文需用公版书源或本地导入。",
+        }
+        if key and probe:
+            try:
+                shelf = await asyncio.to_thread(_weread_client().shelf)
+                payload["shelf"] = weread_mod.shelf_counts(shelf)
+                payload["ok"] = True
+            except Exception as exc:  # noqa: BLE001 —— 探测失败要给人话，不是 500
+                payload["ok"] = False
+                payload["error"] = str(exc)
+        return payload
+
+    @application.put("/api/reading/weread/key")
+    async def weread_save_key(request: Request) -> dict[str, Any]:
+        """保存微信读书 API Key（``wrk-`` 开头）。
+
+        写入 ``data/local_api_config.json``（DPAPI 密文，data/ 已 gitignore），
+        与模型密钥同一套加密 —— 重启不用重填。**响应里绝不回显 key**。
+        """
+        require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        raw = str(body.get("api_key") or "").strip()
+        if raw and not raw.startswith("wrk-"):
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload(
+                    "weread_key_format",
+                    "微信读书 API Key 应以 wrk- 开头。请到官方渠道获取后重试。",
+                ),
+            )
+        try:
+            await asyncio.to_thread(
+                save_extra_local_secret, application.state.settings.data_dir, _WEREAD_KEY_SLOT, raw
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=500,
+                detail=error_payload("weread_key_save_failed", f"保存失败：{exc}"),
+            ) from exc
+        return {"configured": bool(raw), "origin": "config" if raw else ""}
+
+    @application.post("/api/reading/weread/sync")
+    async def weread_sync(request: Request) -> dict[str, Any]:
+        """同步微信读书书架：拉书 → 入库。
+
+        **不建项目** —— 同步往往一次进来几百本，全是元数据，给每本都建项目会瞬间
+        塞满侧栏。真要用到时（生成收获 / 导入正文）再按需建。
+
+        body: ``{progress_limit?: int}`` —— 顺带拉最近阅读的 N 本书的进度（默认 5，
+        上限 20）。书架可能有几百本，逐本拉进度会打爆接口，所以只取最近在读的几本。
+        """
+        user = require_user(request)
+        key, _ = _weread_key()
+        if not key:
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload(
+                    "weread_key_missing",
+                    "还没有配置微信读书 API Key。填入 wrk- 开头的 Key 后即可同步书架。",
+                ),
+            )
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        try:
+            limit = int(body.get("progress_limit", 5))
+        except Exception:
+            limit = 5
+        limit = max(0, min(limit, 20))
+
+        client = _weread_client()
+        try:
+            shelf = await asyncio.to_thread(client.shelf)
+        except Exception as exc:  # noqa: BLE001 —— 网络/凭据问题都要变成人话
+            raise HTTPException(
+                status_code=502,
+                detail=error_payload("weread_sync_failed", f"同步书架失败：{exc}"),
+            ) from exc
+
+        records = weread_mod.shelf_records(shelf)
+        store = reading_store()
+        added: list[dict[str, Any]] = []
+        for record in records:
+            book = await asyncio.to_thread(store.upsert_book, user.user_id, record)
+            if not book:
+                continue
+            project_id = str(book.get("project_id") or "")
+            added.append({"book_key": book["book_key"], "title": book["title"], "project_id": project_id})
+
+        # 最近阅读的几本顺带拉进度（按 readUpdateTime 降序）。
+        progressed = 0
+        recent = sorted(records, key=lambda r: r.get("read_update_time", 0), reverse=True)[:limit]
+        for record in recent:
+            try:
+                payload = await asyncio.to_thread(client.progress, record["source_id"])
+            except Exception:
+                continue
+            info = weread_mod.progress_from_payload(payload)
+            book_key = reading_store_mod.book_key_for(record["source"], record["source_id"])
+            status = "finished" if info["progress"] >= 100 else ("reading" if info["progress"] > 0 else "unread")
+            await asyncio.to_thread(
+                store.update_progress, user.user_id, book_key,
+                progress=info["progress"], status=status,
+            )
+            progressed += 1
+
+        return {
+            "synced": len(added),
+            "progressed": progressed,
+            "counts": weread_mod.shelf_counts(shelf),
+            "books": added,
+        }
+
+    @application.get("/api/reading/weread/books/{book_id}/notes")
+    async def weread_book_notes(book_id: str, request: Request) -> dict[str, Any]:
+        """拉某本书的划线与个人想法 —— 收获文档的直接输入。"""
+        require_user(request)
+        key, _ = _weread_key()
+        if not key:
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload("weread_key_missing", "还没有配置微信读书 API Key。"),
+            )
+        client = _weread_client()
+        try:
+            bookmarks = await asyncio.to_thread(client.bookmarks, book_id)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=502,
+                detail=error_payload("weread_notes_failed", f"拉取划线失败：{exc}"),
+            ) from exc
+        reviews: dict[str, Any] = {}
+        try:
+            reviews = await asyncio.to_thread(client.my_reviews, book_id)
+        except Exception:
+            reviews = {}
+        notes = weread_mod.extract_notes(bookmarks, reviews)
+        return {"book_id": book_id, **notes}
+
+    def _weread_grouped_outline(book_id: str) -> list[dict[str, Any]]:
+        """章节目录 + 按章归组的热门划线。**「逐章精读」与「精华阅读」共用这一份数据。**
+
+        两处调用都各自 try：章节目录拿不到就整段返回空，热门划线拿不到就只出目录 ——
+        缺一半也比整块消失强。
+        """
+        key, _ = _weread_key()
+        if not key:
+            return []
+        client = weread_mod.WereadClient(key)
+        try:
+            chapters = weread_mod.chapter_list(client.chapters(book_id))
+        except Exception:
+            return []
+        if not chapters:
+            return []
+        try:
+            marks = weread_mod.best_bookmarks(client.best_bookmarks(book_id))
+        except Exception:
+            marks = {"items": []}
+        return weread_mod.group_by_chapter(chapters, marks.get("items") or [])
+
+    def _reading_book_intro(book: dict[str, Any]) -> str:
+        """按书源拉**书籍简介** —— 收获文档里唯一的成段材料。
+
+        微信读书只给 20 条热门划线、章节目录只是标题，两者都是碎片。
+        简介（以及豆瓣条目的简介）是成段论述，缺了它，模型只能把碎片重新排列，
+        产出的东西自然还是碎片。所以这一步不是锦上添花，是**减少碎片化的关键**。
+        """
+        source = str(book.get("source") or "")
+        sid = str(book.get("source_id") or "")
+        if not sid:
+            return ""
+        if source == "weread":
+            key, _ = _weread_key()
+            if not key:
+                return ""
+            try:
+                return weread_mod.book_intro(weread_mod.WereadClient(key).book_info(sid))
+            except Exception:
+                return ""
+        if source == "douban":
+            try:
+                return book_sources_mod.douban_detail(sid).get("intro", "")
+            except Exception:
+                return ""
+        return ""
+
+    def _fetch_weread_notes(book_id: str) -> dict[str, Any]:
+        """拉某本书的划线与个人想法。收获接口用它补齐材料，前端不必先拉一遍。"""
+        key, _ = _weread_key()
+        if not key:
+            return {"highlights": [], "thoughts": []}
+        client = weread_mod.WereadClient(key)
+        try:
+            bookmarks = client.bookmarks(book_id)
+        except Exception:
+            bookmarks = {}
+        try:
+            reviews = client.my_reviews(book_id)
+        except Exception:
+            reviews = {}
+        return weread_mod.extract_notes(bookmarks, reviews)
+
+    def _reading_material_for(project_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """本地导入 / 公版书的收获材料，返回 ``(chapters, excerpts)``。
+
+        先试着**按章节切**（``book_sources.split_chapters``）—— 切得出来，收获就能
+        逐章展开，这是本地书相对微信读书的最大优势：**它有真全文**。
+        切不出来（标题不规范）才退化成整块摘录，让模型自己去认结构。
+        """
+        if not project_id:
+            return [], []
+        try:
+            rows = db.list_sources(project_id)
+        except Exception:
+            return [], []
+        chapters: list[dict[str, Any]] = []
+        excerpts: list[dict[str, Any]] = []
+        for row in rows or []:
+            text = str(getattr(row, "text", "") or "").strip()
+            if not text:
+                continue
+            name = str(getattr(row, "filename", "") or "")
+            found = book_sources_mod.split_chapters(text)
+            if found and len(chapters) < 20:
+                for item in found:
+                    if len(chapters) >= 20:
+                        break
+                    chapters.append({"title": item["title"], "excerpt": item["excerpt"]})
+                continue
+            for start in range(0, len(text), 1400):
+                piece = text[start : start + 1400].strip()
+                if len(piece) < 200:
+                    continue
+                excerpts.append({"book": name, "text": piece})
+                if len(excerpts) >= 30:
+                    break
+        return chapters, excerpts
+
+    @application.get("/api/reading/weread/recommend")
+    async def weread_recommend(request: Request, count: int = 12) -> dict[str, Any]:
+        """「为你推荐」——**搜不到书时的发现入口**。
+
+        官方 ``/store/search`` 对部分 API Key 会返回空结果（实测如此），
+        而推荐接口是通的。所以发现路径是「书架同步 + 为你推荐 + 本地导入」，
+        不是「搜索」。
+        """
+        require_user(request)
+        key, _ = _weread_key()
+        if not key:
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload("weread_key_missing", "还没有配置微信读书 API Key。"),
+            )
+        try:
+            payload = await asyncio.to_thread(
+                _weread_client().recommend, count=max(1, min(int(count), 40))
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=502,
+                detail=error_payload("weread_recommend_failed", f"获取推荐失败：{exc}"),
+            ) from exc
+        records = weread_mod.recommend_records(payload)
+        return {
+            "books": records,
+            "groups": book_sources_mod.group_by_category(records),
+            "summary": book_sources_mod.fulltext_summary(records),
+        }
+
+    @application.get("/api/reading/books/{book_key}/outline")
+    async def reading_book_outline(book_key: str, request: Request) -> dict[str, Any]:
+        """「精华阅读」的数据：章节目录 + 每章最热的原文片段。
+
+        微信读书**不提供整本正文**（商业边界，改不了），但它提供全书热门划线 ——
+        那是读者公认最重要的原文片段。按章摆开，就是这本书能读到的「精华版」。
+        本地导入的书则直接读它的资料正文（那份是真的全文）。
+        """
+        user = require_user(request)
+        book = await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        source = str(book.get("source") or "")
+
+        # ⚠️ **项目资料优先于书源**：只要这本书的项目里已经有正文（本地导入 / 用户
+        # 把自备的 EPUB·PDF·TXT 传进来了），就读它 —— 那才是真全文。
+        # 微信读书的书一旦导入正文，也该走这条分支；否则用户明明导入了，
+        # 阅读页还是只给他 20 条热门划线，会以为导入没成功。
+        project_id = str(book.get("project_id") or "")
+        sources: list[dict[str, Any]] = []
+        if project_id:
+            try:
+                rows = await asyncio.to_thread(db.list_sources, project_id)
+            except Exception:
+                rows = []
+            for row in rows or []:
+                text = str(getattr(row, "text", "") or "")
+                sources.append(
+                    {
+                        "source_id": getattr(row, "source_id", ""),
+                        "filename": getattr(row, "filename", ""),
+                        "chars": len(text),
+                        "preview": text[:1200],
+                    }
+                )
+        if sources:
+            return {
+                "kind": "fulltext",
+                "note": "这本书的正文已导入项目，可直接阅读并提问。",
+                "sources": sources,
+                "chapters": [],
+                "total_highlights": 0,
+            }
+
+        if source == "weread":
+            grouped = await asyncio.to_thread(_weread_grouped_outline, book["source_id"])
+            return {
+                "kind": "highlights",
+                "note": (
+                    "微信读书不提供整本正文，这里是全书热门划线按章排列的精华版。"
+                    "想要能全文检索、能划词提问的正文，把这本书的 EPUB / PDF / TXT 传进来即可。"
+                ),
+                "chapters": grouped,
+                "total_highlights": sum(len(c.get("highlights") or []) for c in grouped),
+                "can_import_fulltext": True,
+            }
+
+        return {
+            "kind": "empty",
+            "note": "还没有导入正文。",
+            "sources": [],
+            "chapters": [],
+            "total_highlights": 0,
+            "can_import_fulltext": True,
+        }
+
+    @application.post("/api/reading/books/{book_key}/ask")
+    async def reading_book_ask(book_key: str, request: Request) -> StreamingResponse:
+        """选中一段 → 就这一段跟 AI 讨论（SSE 流式）。
+
+        上下文由**前端**给出：它知道读者选中的是哪一块（收获正文 / 检视结论 /
+        精华阅读的划线 / 正文预览）。拿不到时依次退到这本书的《读书收获》与项目正文
+        （复用既有的 ``_literature_texts``，不另写一份取正文）。
+        整本送进去既贵、又会让模型在中段丢掉「先贴书、再发散」这条主线，所以只送
+        **选区所在的那一块**（``core/knowledge_doc.excerpt_around``）。
+
+        口径：这是**陪读讨论**，不是文档问答 —— 默认就要发散（见
+        ``reading_digest.READING_ASK_SYSTEM``）。选区只是讨论的**锚点**，不是答案的边界：
+        模型先贴着书说清这段，再往别的书 / 学科 / 现实 / 反方 / 思想实验上放开铺，
+        只要书外内容自报家门、不编造具体书目与人名即可。温度也给高一档（0.8），
+        发散要的是联想宽度，不是唯一解。
+        """
+        user = require_user(request)
+        book = await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        question = str(body.get("question") or "").strip()
+        if not question:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("reading_question_required", "先写一句想问的。"),
+            )
+        if not application.state.settings.tju_api_key:
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload(
+                    "api_key_required",
+                    "讨论需要大模型 API。请先登录后在「API 配置」里填写 API Key。",
+                ),
+            )
+        selection = str(body.get("selection") or "")
+        context = str(body.get("context") or "").strip()
+        if not context:
+            doc = await asyncio.to_thread(
+                reading_store().get_doc, user.user_id, book_key, "digest"
+            )
+            context = str((doc or {}).get("content_md") or "").strip()
+        if not context:
+            # 只有真的有项目时才去翻项目正文 —— 没项目的书（纯元数据，如豆瓣条目）
+            # 直接落到下面的「没材料」分支给一句人话；否则 list_sources("") 会抛
+            # 「课程项目不存在：」，把「没材料」误报成「项目丢了」。
+            project_id = str(book.get("project_id") or "")
+            if project_id:
+                context = await asyncio.to_thread(_literature_texts, project_id)
+        context = knowledge_doc_mod.excerpt_around(context, selection)
+        payload = reading_digest_mod.build_reading_ask_payload(
+            question=question,
+            selection=selection,
+            context=context,
+            book=book,
+            history=body.get("history") if isinstance(body.get("history"), list) else [],
+        )
+        if not reading_digest_mod.ask_needs_material(payload):
+            raise HTTPException(
+                status_code=422,
+                detail=error_payload(
+                    "reading_ask_no_material",
+                    "这本书还没有可依据的材料：先在页面里选中一段原文，或先生成一次《读书收获》。",
+                ),
+            )
+        messages = [
+            {"role": "system", "content": reading_digest_mod.READING_ASK_SYSTEM},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"task": "reading_ask", "payload": payload}, ensure_ascii=False
+                ),
+            },
+        ]
+
+        def _ask_sse(event: dict[str, Any]) -> str:
+            return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        async def event_stream() -> AsyncIterator[str]:
+            yield _ask_sse({"type": "start", "context_chars": len(context)})
+            pieces: list[str] = []
+            try:
+                async for chunk in application.state.llm.astream_chat_content(
+                    messages, "reading_ask",
+                    temperature=reading_digest_mod.READING_ASK_TEMPERATURE,
+                ):
+                    pieces.append(chunk)
+                    yield _ask_sse({"type": "delta", "text": chunk})
+            except Exception as exc:  # noqa: BLE001 —— 要变成人能看懂的一句话
+                LOGGER.warning("reading ask failed: %s", exc)
+                yield _ask_sse({"type": "error", "message": f"这次没答上来：{exc}"})
+                return
+            answer = knowledge_doc_mod.clean_answer("".join(pieces))
+            if not answer:
+                yield _ask_sse(
+                    {"type": "error", "message": "模型这次没有返回内容，可以再问一次。"}
+                )
+                return
+            yield _ask_sse({"type": "done", "text": answer})
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @application.put("/api/reading/books/{book_key}/fulltext")
+    async def reading_mark_fulltext(book_key: str, request: Request) -> dict[str, Any]:
+        """把一本书标记为「已导入正文」。
+
+        前端先把文件传进这本书的项目（走既有的上传 / 解析 / OCR 链路），
+        成功后调这里落一个标记 —— 于是书架卡片会打上「全文」徽标，
+        阅读页也会切到真全文视图。**不重复造上传逻辑**，只补这一步状态。
+        """
+        user = require_user(request)
+        await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        fmt = str(body.get("format") or "").strip().lstrip(".").lower()
+        book = await asyncio.to_thread(
+            reading_store().mark_fulltext, user.user_id, book_key, fmt
+        )
+        return {"book": book}
+
+    @application.post("/api/reading/books/{book_key}/fulltext/fetch")
+    async def reading_fetch_fulltext(book_key: str, request: Request) -> dict[str, Any]:
+        """**自动取正文**：把公版书的整本正文抓进这本书自己的项目。
+
+        这是「本地导入」之外的第二条正文路径 —— 之前 `fetch_fulltext()` 写好了却没有
+        任何入口，等于公版书全文能力一直闲置。现在补上：
+
+        1. 按书源取正文（Standard Ebooks / 古腾堡 / Internet Archive / 维基文库）；
+        2. **复用「粘贴文本」那条既有链路**入库（解析 → 项目资料），不另造一套；
+        3. 落 ``mark_fulltext`` 标记，书架徽标与阅读页立刻切成真全文。
+
+        有版权的书在这里必然被拒（``fetch_fulltext`` 的版权红线），返回原因是给用户看的，
+        不是给日志看的 —— 所以直接透出去。
+        """
+        user = require_user(request)
+        book = await asyncio.to_thread(_reading_book_or_404, user.user_id, book_key)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        # 搜索结果里的入口（files / read_url）比书架记录更全，允许前端带上来补足。
+        # 只覆盖非空字段，避免把书架上的状态字段冲掉。
+        incoming = body.get("book") if isinstance(body.get("book"), dict) else {}
+        record = {**book, **{k: v for k, v in incoming.items() if v not in (None, "", [], {})}}
+
+        result = await asyncio.to_thread(book_sources_mod.fetch_fulltext, record)
+        if not result.get("ok"):
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload(
+                    "reading_fulltext_fetch_failed",
+                    str(result.get("reason") or "取正文失败。"),
+                ),
+            )
+        text = str(result.get("text") or "")
+        if len(text) < 200:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload(
+                    "reading_fulltext_too_short",
+                    f"抓到的正文只有 {len(text)} 字，明显不完整，已放弃入库。",
+                ),
+            )
+
+        project_id = await asyncio.to_thread(
+            _reading_project_for, user.user_id, book_key
+        )
+        filename = f"{str(record.get('title') or '公版书').strip()[:60]}.txt"
+        # ⚠️ 走「粘贴文本」而不是「上传文件」：正文已经在内存里，再落一次临时文件
+        # 只会多一份磁盘拷贝，还要自己清理。
+        extracted = extract_source(filename, b"", pasted_text=text)
+        saved = await asyncio.to_thread(db.add_source, project_id, extracted)
+        row = await asyncio.to_thread(db.get_source_row, project_id, saved.source_id)
+        record_undo(
+            user,
+            project_id,
+            "source.add",
+            f"自动获取《{str(record.get('title') or '')}》正文（{len(text)} 字）",
+            {"project_id": project_id, "sources": [row]},
+        )
+        fmt = str(result.get("format") or "txt")
+        updated = await asyncio.to_thread(
+            reading_store().mark_fulltext, user.user_id, book_key, fmt
+        )
+        return {
+            "book": updated,
+            "source": _source_payload(application, saved),
+            "chars": len(text),
+            "format": fmt,
+            "chapters": len(result.get("chapters") or []),
+        }
+
+    @application.post("/api/reading/links")
+    async def reading_file_links(request: Request) -> dict[str, Any]:
+        """**找文件链接**：给一本书找「哪里能读 / 能借 / 能下」。
+
+        这是「取正文」之外的另一条路，而且经常更有用 —— 有版权的书正文拿不到，
+        但一个能立刻打开的正确入口是拿得到的（HathiTrust 馆藏、Open Library 借阅、
+        Internet Archive 扫描本、出版社直链…）。用户要的往往就是这个。
+        """
+        user = require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        record = body.get("book") if isinstance(body.get("book"), dict) else body
+        record = record if isinstance(record, dict) else {}
+        # 允许只传 book_key：书架上的记录更权威（含 source/source_id/isbn）。
+        book_key = str(body.get("book_key") or "").strip()
+        if book_key:
+            stored = await asyncio.to_thread(reading_store().get_book, user.user_id, book_key)
+            if stored:
+                record = {**record, **stored}
+        if not record.get("title"):
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("reading_links_book_required", "先选一本书。"),
+            )
+        result = await asyncio.to_thread(book_sources_mod.find_file_links, record)
+        return {
+            "ok": bool(result.get("ok")),
+            "links": result.get("links") or [],
+            "reason": str(result.get("reason") or ""),
+            "checked": result.get("checked") or [],
+            "proxy_in_use": book_sources_mod.using_proxy(),
+        }
+
+    # ------------------------------------------------------------------
+    # 跨书知识网络
+    #
+    # 输入是**各书的《读书收获》**（models = 可复用框架，connections = 关联对象）。
+    # 输出是一张图 + 三类结构信息：hub（枢纽）、bridge（桥，割点）、跨书支持度。
+    #
+    # 「桥」是整张网里最值钱的东西：去掉它，图就断成两半 —— 它连接的是两个
+    # 原本无关的领域（Munger 说的「不同学科指向同一结论」；前沿图推理论文里的
+    # bridging nodes）。所以界面上要把桥单独拎出来，并且能**就着这个簇生成方法论**。
+    # ------------------------------------------------------------------
+
+    def net_store() -> NetStore:
+        return _aux_store("net", NetStore)
+
+    def _reading_digests(owner_id: str) -> list[dict[str, Any]]:
+        """把该用户所有书的收获文档收成知识网络的输入。没有收获的书自然不进网。"""
+        store = reading_store()
+        out: list[dict[str, Any]] = []
+        for book in store.list_books(owner_id):
+            doc = store.get_doc(owner_id, book["book_key"], "digest")
+            if not doc:
+                continue
+            content = doc.get("content") or {}
+            if not isinstance(content, dict):
+                continue
+            out.append(
+                {
+                    "book": str(book.get("title") or ""),
+                    "book_key": str(book.get("book_key") or ""),
+                    "models": content.get("models") or [],
+                    "connections": content.get("connections") or [],
+                }
+            )
+        return out
+
+    def _net_analysis(owner_id: str) -> dict[str, Any]:
+        """现算整张网（含用户确认过的合并）。"""
+        return knowledge_net_mod.analyze(
+            _reading_digests(owner_id),
+            merges=net_store().list_merges(owner_id),
+        )
+
+    @application.get("/api/reading/net")
+    async def reading_net(request: Request) -> dict[str, Any]:
+        """整张跨书知识网络 + 结构分析（枢纽 / 桥 / 跨书支持度）。"""
+        user = require_user(request)
+        data = await asyncio.to_thread(_net_analysis, user.user_id)
+        data["methodologies"] = await asyncio.to_thread(
+            net_store().list_methodologies, user.user_id
+        )
+        return data
+
+    @application.get("/api/reading/net/candidates")
+    async def reading_net_candidates(request: Request) -> dict[str, Any]:
+        """可能该合并的概念对。**只给候选，合并要用户点**（不猜合并）。"""
+        user = require_user(request)
+        data = await asyncio.to_thread(_net_analysis, user.user_id)
+        return {"candidates": knowledge_net_mod.candidate_pairs(data["nodes"])}
+
+    @application.post("/api/reading/net/merge")
+    async def reading_net_merge(request: Request) -> dict[str, Any]:
+        """确认合并两个概念（``{from_key, to_key}``）。可撤销。"""
+        user = require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        from_key = str(body.get("from_key") or "").strip()
+        to_key = str(body.get("to_key") or "").strip()
+        if not from_key or not to_key or from_key == to_key:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("net_merge_invalid", "需要两个不同的概念键。"),
+            )
+        await asyncio.to_thread(net_store().add_merge, user.user_id, from_key, to_key)
+        data = await asyncio.to_thread(_net_analysis, user.user_id)
+        return {"ok": True, **data}
+
+    @application.delete("/api/reading/net/merge/{from_key}")
+    async def reading_net_unmerge(from_key: str, request: Request) -> dict[str, Any]:
+        user = require_user(request)
+        await asyncio.to_thread(net_store().remove_merge, user.user_id, from_key)
+        return {"ok": True, **await asyncio.to_thread(_net_analysis, user.user_id)}
+
+    @application.post("/api/reading/net/methodology")
+    async def reading_net_methodology(request: Request) -> dict[str, Any]:
+        """就着某个概念所在的**簇**生成一份《方法论》，并沉淀技能卡。
+
+        body: ``{anchor_key}`` —— 一般传一个**桥**（bridge）的键，
+        因为桥所在的那个簇横跨两个领域，归纳出来的方法论最有用。
+        """
+        user = require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        anchor_key = str(body.get("anchor_key") or "").strip()
+        if not anchor_key:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("net_anchor_required", "需要指定要归纳哪个概念所在的簇。"),
+            )
+
+        data = await asyncio.to_thread(_net_analysis, user.user_id)
+        cluster_key = (data.get("cluster_keys") or {}).get(anchor_key, "")
+        members = set()
+        for group in data.get("clusters") or []:
+            if anchor_key in group:
+                members = set(group)
+                break
+        if not members:
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload("net_cluster_not_found", "这个概念还不在网络里。"),
+            )
+        by_key = {n["concept_key"]: n for n in data.get("nodes") or []}
+        cluster_nodes = [by_key[k] for k in members if k in by_key]
+        cluster_edges = [
+            e for e in (data.get("edges") or [])
+            if e.get("source") in members and e.get("target") in members
+        ]
+        anchor_name = (by_key.get(anchor_key) or {}).get("name") or anchor_key
+
+        payload = knowledge_net_mod.build_methodology_payload(cluster_nodes, cluster_edges)
+        result: dict[str, Any] = {}
+        used_fallback = False
+        if application.state.settings.tju_api_key or application.state.llm.responder is not None:
+            try:
+                raw = await asyncio.to_thread(
+                    application.state.llm.complete_json, "make_methodology", payload
+                )
+                result = knowledge_net_mod.normalize_methodology_result(raw)
+            except Exception:  # noqa: BLE001 —— 失败要走兜底，不是 500
+                result = {}
+        if not knowledge_net_mod.methodology_has_content(result):
+            result = knowledge_net_mod.build_methodology_fallback(cluster_nodes)
+            used_fallback = True
+        content_md = knowledge_net_mod.render_methodology_markdown(
+            result, concepts=[n.get("name") or "" for n in cluster_nodes]
+        )
+
+        saved = await asyncio.to_thread(
+            net_store().save_methodology,
+            user.user_id,
+            cluster_key=cluster_key,
+            result=result,
+            content_md=content_md,
+            anchor_key=anchor_key,
+            anchor_name=anchor_name,
+        )
+
+        # 技能卡：沉淀到簇里**任意一本有项目的书**下 —— 卡是项目级的，
+        # 而这些概念本来就来自那几本书。
+        synced = {"synced": 0, "updated": 0, "removed": 0, "card_ids": []}
+        wanted = knowledge_net_mod.build_skill_cards(result, cluster_key=cluster_key)
+        if wanted:
+            names = (by_key.get(anchor_key) or {}).get("books") or []
+            by_title = {b.get("title"): b for b in reading_store().list_books(user.user_id)}
+            project_id = ""
+            # 先挑一本已经有项目的书（生成过收获 / 导入过正文）。
+            for name in names:
+                book = by_title.get(name)
+                if book and book.get("project_id"):
+                    project_id = str(book["project_id"])
+                    break
+            # 都没有就按需给锚点书建一个 —— 技能卡是**有产出**的，值得一个项目承载。
+            if not project_id:
+                for name in names:
+                    book = by_title.get(name)
+                    if book:
+                        project_id = await asyncio.to_thread(
+                            _reading_project_for, user.user_id, book["book_key"]
+                        )
+                        if project_id:
+                            break
+            if project_id:
+                synced = await asyncio.to_thread(
+                    reading_store_mod.sync_cards, db, project_id, wanted=wanted
+                )
+        return {
+            "methodology": saved,
+            "cluster_key": cluster_key,
+            "cluster": [{"concept_key": n["concept_key"], "name": n.get("name"),
+                         "books": n.get("books") or []} for n in cluster_nodes],
+            "cards": synced,
+            "fallback": used_fallback,
+        }
+
+    @application.post("/api/reading/net/ask")
+    async def reading_net_ask(request: Request) -> StreamingResponse:
+        """就着**整张跨书知识网**提问（SSE 流式）。
+
+        与 ``/api/reading/books/{book_key}/ask``（陪读讨论）分工不同，别合并：
+        陪读是「读者正读着一本书、选中了一段」，这边是「读者手上是一张跨书的网」。
+        所以这里**没有原文选段**这回事 —— 材料就是整张网的结构化描述，
+        由**前端**渲染后送来（它手上有整张网，也才知道用户当前停在哪个领域 / 概念）。
+        """
+        user = require_user(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        question = str(body.get("question") or "").strip()
+        if not question:
+            raise HTTPException(
+                status_code=400,
+                detail=error_payload("reading_question_required", "先写一句想问的。"),
+            )
+        if not application.state.settings.tju_api_key and application.state.llm.responder is None:
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload(
+                    "api_key_required",
+                    "提问需要大模型 API。请先登录后在「API 配置」里填写 API Key。",
+                ),
+            )
+        payload = knowledge_net_mod.build_net_ask_payload(
+            question=question,
+            context=body.get("context") if isinstance(body.get("context"), str) else "",
+            scope=str(body.get("scope") or "network"),
+            anchor=str(body.get("anchor") or ""),
+            history=body.get("history") if isinstance(body.get("history"), list) else [],
+        )
+        if not knowledge_net_mod.net_ask_needs_material(payload):
+            raise HTTPException(
+                status_code=422,
+                detail=error_payload(
+                    "reading_net_ask_no_material",
+                    "这张网还没有可依据的材料：先生成至少两本书的《读书收获》。",
+                ),
+            )
+        messages = [
+            {"role": "system", "content": knowledge_net_mod.NET_ASK_SYSTEM},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"task": "reading_net_ask", "payload": payload}, ensure_ascii=False
+                ),
+            },
+        ]
+
+        def _net_sse(event: dict[str, Any]) -> str:
+            return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        async def net_event_stream() -> AsyncIterator[str]:
+            yield _net_sse({"type": "start", "context_chars": len(payload["context"])})
+            pieces: list[str] = []
+            try:
+                async for chunk in application.state.llm.astream_chat_content(
+                    messages, "reading_ask"
+                ):
+                    pieces.append(chunk)
+                    yield _net_sse({"type": "delta", "text": chunk})
+            except Exception as exc:  # noqa: BLE001 —— 要变成人能看懂的一句话
+                LOGGER.warning("reading net ask failed: %s", exc)
+                yield _net_sse({"type": "error", "message": f"这次没答上来：{exc}"})
+                return
+            answer = knowledge_doc_mod.clean_answer("".join(pieces))
+            if not answer:
+                yield _net_sse({"type": "error", "message": "模型这次没有返回内容，可以再问一次。"})
+                return
+            yield _net_sse({"type": "done", "text": answer})
+
+        return StreamingResponse(
+            net_event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @application.post("/api/projects/{project_id}/nodes/{node_id}/doc")
     async def generate_node_doc(

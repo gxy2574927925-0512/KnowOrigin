@@ -195,8 +195,9 @@ html[data-ui="agent"] .agent-project-row {
 }
 html[data-ui="agent"] .agent-project-row:hover { background: var(--agent-hover); }
 html[data-ui="agent"] .agent-project-row.is-current { background: var(--agent-active); }
-/* 展开箭头与「文档」图标都是行内的独立点击目标（行本身是 <button>，套不了 <button>，
-   所以用 role="button" 的 <span>，点击在 #agent-session-list 的委托里分流）。 */
+/* 展开箭头与右侧两个图标（学习文档 / 知识文档）都是行内的独立点击目标（行本身是
+   <button>，套不了 <button>，所以用 role="button" 的 <span>，点击在
+   #agent-session-list 的委托里分流）。 */
 html[data-ui="agent"] .agent-project-caret {
   display: grid; place-items: center; flex: 0 0 auto;
   width: 16px; height: 16px; margin-left: -4px;
@@ -207,19 +208,27 @@ html[data-ui="agent"] .agent-project-name {
   flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* 右侧的文档入口：静止时半透明（触屏没有 hover，全藏起来就点不到），悬停整行或当前项目时点亮 */
-html[data-ui="agent"] .agent-project-doc {
+/* 右侧两个文档入口（学习文档 / 知识文档）：静止时半透明（触屏没有 hover，
+   全藏起来就点不到），悬停整行或当前项目时点亮。并排两个图标共 50px，
+   所以 .agent-project-name 的 flex:1 1 auto + min-width:0 必须留着，
+   否则窄侧栏下项目名会把图标挤出可视区。 */
+html[data-ui="agent"] .agent-project-doc,
+html[data-ui="agent"] .agent-project-study {
   display: grid; place-items: center; flex: 0 0 auto;
   width: 22px; height: 22px; border-radius: 6px;
   color: var(--muted); opacity: 0.45;
 }
-html[data-ui="agent"] .agent-project-doc svg {
+html[data-ui="agent"] .agent-project-doc svg,
+html[data-ui="agent"] .agent-project-study svg {
   width: 14px; height: 14px; fill: none; stroke: currentColor;
   stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
 }
 html[data-ui="agent"] .agent-project-row:hover .agent-project-doc,
-html[data-ui="agent"] .agent-project-row.is-current .agent-project-doc { opacity: 1; }
-html[data-ui="agent"] .agent-project-doc:hover { background: var(--agent-hover); color: var(--green); }
+html[data-ui="agent"] .agent-project-row.is-current .agent-project-doc,
+html[data-ui="agent"] .agent-project-row:hover .agent-project-study,
+html[data-ui="agent"] .agent-project-row.is-current .agent-project-study { opacity: 1; }
+html[data-ui="agent"] .agent-project-doc:hover,
+html[data-ui="agent"] .agent-project-study:hover { background: var(--agent-hover); color: var(--green); }
 html[data-ui="agent"] .agent-session-main {
   display: flex; align-items: center; gap: 6px; width: 100%;
   padding: 6px 8px 6px 20px; border: 0; border-radius: 8px;
@@ -414,16 +423,23 @@ html[data-ui="agent"] .composer       { grid-row: 3; }
 html[data-ui="agent"] .suggested-questions {
   position: absolute; top: 7px; right: 12px; left: auto;
   z-index: 300;   /* 高于输入区 popover(200) 与题面浮层(210)；原生 <dialog> 走 top layer 不受影响 */
-  width: 232px; max-width: none; max-height: 300px; margin: 0;
+  width: 232px; max-width: none; margin: 0;
+  /* ⚠️ 面板只当「外框」，滚动交给下面的列表（2026-10-08 修的真 bug）：
+     原来是 max-height:300px + overflow:visible —— 盒子被截到 300px，内容照画。
+     6 条推荐问题实测 663px，最后一张卡片落在盒外 364px 处：卡片悬在面板背景与边框
+     之外（用户看到的就是「背景破了」），而 scrollTop 怎么设都停在 0（滚不动）。
+     两者是同一个根因：overflow:visible 既不裁内容也不建滚动容器。 */
+  max-height: min(400px, calc(100% - 96px));
+  display: flex; flex-direction: column; overflow: hidden;
   padding: 5px 6px 5px 9px; border: 1px solid var(--agent-line);
   border-radius: 999px; background: var(--panel); box-shadow: 0 4px 14px rgba(24, 35, 54, .08);
-  overflow: visible;
 }
 html[data-ui="agent"] .suggested-questions:not(.is-collapsed) {
   padding: 8px 9px; border-radius: 12px; box-shadow: 0 10px 28px rgba(24, 35, 54, .12);
 }
 /* 标题行当拖动手柄 */
 html[data-ui="agent"] .suggested-questions .suggested-questions-head {
+  flex: 0 0 auto;
   margin-bottom: 0; gap: 6px; cursor: grab; touch-action: none; user-select: none;
 }
 html[data-ui="agent"] .suggested-questions .suggested-questions-head:active { cursor: grabbing; }
@@ -431,7 +447,34 @@ html[data-ui="agent"] .suggested-questions .suggested-questions-actions button {
 html[data-ui="agent"] .suggested-questions.is-dragging { z-index: 320; box-shadow: 0 14px 34px rgba(24, 35, 54, .18); }
 html[data-ui="agent"] .suggested-questions.is-dragging * { cursor: grabbing !important; }
 html[data-ui="agent"] .suggested-questions:not(.is-collapsed) .suggested-questions-head { margin-bottom: 7px; }
-html[data-ui="agent"] .suggested-question-chip { padding: 6px 9px; border-radius: 8px; font-size: calc(11.5px * var(--font-scale, 1)); line-height: 1.5; }
+
+/* 列表才是滚动容器：标题行（拖动 + 换一批 + 隐藏）永远留在视野里，不会被内容卷走。
+   滚动若做在面板上，滚两下标题行就跑出盒外 —— 拖不动、也关不掉。 */
+html[data-ui="agent"] .suggested-questions:not(.is-collapsed) .suggested-questions-list {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+}
+/* 细滚动条。⚠️ 不能用 scrollbar-width: thin 给 Chromium —— 标准属性一旦是非 auto 值，
+   Chromium 会**忽略** ::-webkit-scrollbar 那一套，自定义 8px 细条直接失效（只剩系统默认）。
+   所以用 @supports 把 scrollbar-width 只留给不认 ::-webkit-scrollbar 的引擎（Firefox）。 */
+@supports not selector(::-webkit-scrollbar) {
+  html[data-ui="agent"] .suggested-questions-list { scrollbar-width: thin; }
+}
+html[data-ui="agent"] .suggested-questions-list::-webkit-scrollbar { width: 8px; }
+html[data-ui="agent"] .suggested-questions-list::-webkit-scrollbar-track { background: transparent; }
+html[data-ui="agent"] .suggested-questions-list::-webkit-scrollbar-thumb {
+  background: var(--agent-line); border-radius: 999px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+html[data-ui="agent"] .suggested-questions-list::-webkit-scrollbar-thumb:hover {
+  background: var(--muted); border: 2px solid transparent; background-clip: content-box;
+}
+/* 卡片别被滚动容器压扁：列表是 column flex，溢出时 flex-shrink 会把每张卡都挤矮 */
+html[data-ui="agent"] .suggested-question-chip {
+  flex: 0 0 auto;
+  padding: 6px 9px; border-radius: 8px;
+  font-size: calc(11.5px * var(--font-scale, 1)); line-height: 1.5;
+}
 html[data-ui="agent"] #suggested-restore { display: none; }  /* 折叠恢复靠块内「显示」按钮 */
 
 /* 右键菜单（挂 body，fixed，独立于任何布局） */

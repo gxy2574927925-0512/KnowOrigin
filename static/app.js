@@ -447,15 +447,37 @@ async function init() {
   ensureSomeViewVisible();
 }
 
-// 三个顶层视图（登录壳 / 工作区 / 错误条）全 hidden 时，露出登录壳。
+// 顶层视图总表：登录壳 / 工作台 / 文章阅读 / 读书 / 报错条。
+// ⚠️ 新增顶层视图必须一起登记（HTML 上打 data-top-view 即可），否则这个兜底会
+// 把「#workspace 被该视图隐藏」误判成整页白屏，把登录卡塞到它顶上。
+// 读书模式就是这么踩的：进「读书」后 #workspace 隐藏、可见的是 #reading-workspace，
+// init() 收尾在这里强制露出登录壳 —— 表现就是「打开阅读模式出现登录界面」。
+// index.html 的首屏兜底有一份同样口径的名单（JS 挂了也要能跑，不能共用）。
+const TOP_LEVEL_VIEW_IDS = ["auth-shell", "workspace", "literature-workspace", "reading-workspace", "error-banner"];
+
+function topLevelViews() {
+  const nodes = TOP_LEVEL_VIEW_IDS
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+  // data-top-view 是给新视图用的登记口：加了它就自动算数，不必回来改上面的名单。
+  document.querySelectorAll("[data-top-view]").forEach((node) => {
+    if (!nodes.includes(node)) nodes.push(node);
+  });
+  return nodes;
+}
+
+function isTopLevelViewVisible(node) {
+  if (!node || node.hidden) return false;
+  // 用计算样式判定：隐藏可能来自 .hidden(!important)、inline style 或别的类，
+  // 只查 classList 会漏判。显示中的视图必须让兜底闭嘴。
+  const style = window.getComputedStyle(node);
+  return style.display !== "none" && style.visibility !== "hidden";
+}
+
+// 所有顶层视图（含登录壳 / 两个阅读模式 / 报错条）全 hidden 时，才露出登录壳。
 // 否则用户看到的是纯白屏，连报错条都看不出来。
 function ensureSomeViewVisible() {
-  const views = ["#auth-shell", "#workspace", "#error-banner"];
-  const visible = views.some((selector) => {
-    const node = document.querySelector(selector);
-    return node && !node.classList.contains("hidden") && !node.hidden;
-  });
-  if (visible) return;
+  if (topLevelViews().some(isTopLevelViewVisible)) return;
   const fallback = document.querySelector("#auth-shell") || document.querySelector("#workspace");
   if (fallback) {
     fallback.classList.remove("hidden");
@@ -1714,7 +1736,17 @@ function showAuthView() {
   resetLiteratureModule();
   // 登出视为新会话：清掉账号标记，下一位（哪怕同一人）登录按新账号处理
   localStorage.removeItem(LAST_ACCOUNT_KEY);
+  // 两个与工作台平级的阅读视图都要收起来，否则「在阅读模式里会话失效」时，
+  // 登录壳会和还开着的阅读界面上下叠在一起 —— 用户看到的就是「阅读模式里冒出登录界面」。
+  // 文章阅读早在名单里，读书（#reading-workspace）之前漏了。
   document.getElementById("literature-workspace")?.classList.add("hidden");
+  const readingWorkspace = document.getElementById("reading-workspace");
+  if (readingWorkspace) {
+    // .is-open 才是 #reading-workspace 的 display:block 开关，一起复位；
+    // 但不能走 KnowOriginReading.close()——那个会把 #workspace 又露出来。
+    readingWorkspace.classList.add("hidden");
+    readingWorkspace.classList.remove("is-open");
+  }
   $("#workspace").classList.add("hidden");
   authShell.classList.remove("hidden");
   $("#account-name").textContent = "";
@@ -2118,7 +2150,13 @@ async function loadProjects() {
       await selectProject(target);
     } else {
       resetProjectView();
-      $("#project-dialog").showModal();
+      // 自动弹「新建项目」只在用户**还停在工作台**时做。登录后这一步要等
+      // /api/projects 回来才跑到，而用户在这段空档里可能已经先进了文章阅读 / 读书
+      // （#workspace 被那两个视图隐藏）。此时 showModal 会把「建立独立项目」
+      // 硬怼在阅读界面正中间 —— 和「阅读模式里冒出登录界面」是同一个时序病。
+      // 用户回到工作台后，顶部「新建项目」与侧栏入口都还在，随时能建。
+      const workspace = document.getElementById("workspace");
+      if (workspace && isTopLevelViewVisible(workspace)) $("#project-dialog").showModal();
     }
   } catch (error) { showError(error, loadProjects); }
 }
@@ -8196,7 +8234,8 @@ function renderFramework() {
   const output = $("#studio-output");
   // 布局：保持 buildFrameworkLayout 的默认列限高（1500px）让树自己决定换列；
   // 旧版重布局（tunedCap）会让少节点框架被强行压成竖条，这里直接删。
-  let layout = buildFrameworkLayout(state.nodes);
+  // 折叠状态来自 KbTreeFlow 的角标；没加载那个脚本时是 null，布局行为与原来完全一致
+  let layout = buildFrameworkLayout(state.nodes, 1500, window.KbTreeFlow ? window.KbTreeFlow.collapsed() : null);
   const edges = [...layout.children.entries()].flatMap(([parentId, childIds]) => {
     const from = layout.positions.get(parentId);
     if (!from) return [];
@@ -8221,6 +8260,9 @@ function renderFramework() {
   // 双链已移至独立「双链图谱」视图（Obsidian 式流动网络），不再绘入 XMind 脑图
   const nodes = state.nodes.map((node) => {
     const pos = layout.positions.get(node.node_id);
+    // 被折叠收起的节点：布局已经把它们排除在外，positions 里没有坐标。
+    // 这里必须跳过 —— 否则 pos.x 直接抛错，整次重排崩掉，表现就是"点了角标没反应"。
+    if (!pos) return "";
     const palette = nodePalette(node);
     const side = layout.sides.get(node.node_id) || "root";
     const titleAlign = side === "left" ? "end" : "start";
@@ -8371,6 +8413,12 @@ function renderFramework() {
   });
   if (kbView === "tree") {
     bindFrameworkViewport(svg, layout);
+    // 流动增强：掌握度向上传导 + 层级蔓延入场 + 折叠角标（独立文件 static/kb-tree-flow.js）
+    try {
+      window.KbTreeFlow?.attach(svg, layout);
+    } catch (error) {
+      console.error("[知识框架流动层] 挂载失败，图谱其余交互不受影响", error);
+    }
     const addRootBtn = output.querySelector("[data-framework-action='add-root']");
     if (addRootBtn) addRootBtn.addEventListener("click", () => renderNodeEditor());
     output.querySelectorAll(".graph-node").forEach((element) => {
@@ -10446,6 +10494,8 @@ function kbFlowInit(container) {
       setTimeout(() => { ov.remove(); }, 7200);
     }
   }
+  // 神经脉冲流动层（独立文件 static/kb-flow-pulse.js，自带 rAF，不进本函数的主循环）
+  window.KbFlowPulse?.attach(container);
 }
 
 // 双链图谱渲染异常时的兜底展示（避免空白区域让用户以为卡死）
@@ -13294,7 +13344,24 @@ function kbSelAskMain() {
   $("#composer").requestSubmit();
 }
 
-function buildFrameworkLayout(nodes, maxColumnHeight = 1500) {
+function buildFrameworkLayout(nodes, maxColumnHeight = 1500, collapsed = null) {
+  // 折叠（KbTreeFlow 的角标维护这个集合）：被折叠节点的整棵子树都不参与布局。
+  // 先按全量节点建一次父子表才能算出隐藏集，算完再把 nodes 换成过滤后的 —— 后面
+  // 所有逻辑（列装箱、主轴、左右分配）都直接用 nodes，替换参数即可，无需逐处改。
+  if (collapsed && collapsed.size) {
+    const kids0 = new Map(nodes.map((n) => [n.node_id, []]));
+    nodes.forEach((n) => {
+      if (n.parent_id && n.parent_id !== n.node_id && kids0.has(n.parent_id)) {
+        kids0.get(n.parent_id).push(n.node_id);
+      }
+    });
+    const hidden = new Set();
+    const mark = (id) => (kids0.get(id) || []).forEach((k) => {
+      if (!hidden.has(k)) { hidden.add(k); mark(k); }
+    });
+    collapsed.forEach(mark);
+    nodes = nodes.filter((n) => !hidden.has(n.node_id));
+  }
   const nodeWidth = 188;
   const nodeHeight = 64;
   const columnGap = 64;

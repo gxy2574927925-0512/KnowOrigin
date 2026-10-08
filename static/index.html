@@ -25,8 +25,11 @@
        styles.css 的 html[data-theme="dark"] 规则（否则 classic 深色 = 白底浅字）。 -->
     <link rel="stylesheet" href="/static/classic-palette.css?v=20261005-morandi1">
     <!-- Agent 工作台布局：必须排在 styles.css 之后，才能靠加载顺序覆盖它 -->
-    <link rel="stylesheet" href="/static/agent-layout.css?v=20261007-sidebar-tree1">
+    <link rel="stylesheet" href="/static/agent-layout.css?v=20261008-suggested-scroll1">
   <link rel="stylesheet" href="/static/styles-literature.css?v=20261006-topbar-icon-fix">
+  <!-- 读书：独立模式（书架 / 搜索 / 读书收获）。规则锁在 #reading-workspace 内，
+       摘掉这一行即完整回退。 -->
+  <link rel="stylesheet" href="/static/styles-reading.css?v=20261007-reading7">
   <!-- 海小棠桌宠：陪伴关怀模块（低侵入，独立前缀，登录后展示） -->
   <link rel="stylesheet" href="/static/hxt-pet.css?v=20260930-hxt-checklist-ask">
   <!-- KaTeX 已本地化到 static/vendor/：校园网 / VPN / 断网环境下公式仍可渲染 -->
@@ -38,6 +41,14 @@
        重点重塑深色模式与五个阅读场景（文档/卡片/测验/图谱/概览）。
        必须排在 polish 之后；删掉只会退回普通深色，不会报错。 -->
   <link rel="stylesheet" href="/static/styles-immersive.css?v=20261006-immersive-v6">
+  <!-- 神经图谱（沉浸式知识图谱）：全部规则锁在 .ko-nv-layer 作用域内，
+       入口按钮由 kb-neural-view.js 注入图谱工具栏（不改 app.js）。
+       删掉这一行 + 下面 kb-neural-view.js 那一行，即完全回退。 -->
+  <link rel="stylesheet" href="/static/styles-neural.css?v=20261008-neural-v15">
+  <!-- 读书的神经图谱：复用上面那套 .ko-nv-layer 材质，只补本层独有的
+       （放射节点 / 类型化边 / 图例 / 概念卡分组）。
+       删掉这一行 + 下面 rd-neural-view.js 那一行，即回到原来的 SVG 圆环图。 -->
+  <link rel="stylesheet" href="/static/styles-reading-neural.css?v=20261008-rdneural-v1">
   <script>
     window.MathJax = {
       // \boldsymbol 在 MathJax v3 属于独立扩展（非 base/ams），不加载会导致
@@ -93,7 +104,7 @@
   </script>
 </head>
 <body>
-  <div id="error-banner" class="error-banner hidden" role="alert">
+  <div id="error-banner" class="error-banner hidden" role="alert" data-top-view>
     <span id="error-message"></span>
     <div class="error-actions">
       <button id="retry-button" class="text-button hidden" type="button">重试</button>
@@ -102,7 +113,7 @@
   </div>
 
   <!-- 登录壳默认可见：脚本或浏览器扩展加载失败时也不能让用户看到整页白屏。 -->
-  <section id="auth-shell" class="auth-shell" aria-labelledby="auth-title">
+  <section id="auth-shell" class="auth-shell" aria-labelledby="auth-title" data-top-view>
     <div class="tju-decor" aria-hidden="true">
       <svg class="tju-building" viewBox="0 0 640 150">
         <g fill="currentColor">
@@ -140,7 +151,7 @@
     </form>
   </section>
 
-  <main id="workspace" class="workspace hidden">
+  <main id="workspace" class="workspace hidden" data-top-view>
     <!-- Agent 工作台布局：图标栏 + 项目/会话侧栏（只在 html[data-ui="agent"] 下显示） -->
     <nav id="agent-rail" class="agent-rail" aria-label="学习产出与全局功能">
       <span class="agent-rail-logo"><img class="ko-brand-img" src="/static/icon.svg" alt="" aria-hidden="true"></span>
@@ -162,6 +173,8 @@
       </button>
       <span class="agent-rail-sep"></span>
       <button class="agent-rail-btn" data-agent-action="literature" aria-label="文章阅读" title="文章阅读"><span class="agent-rail-glyph agent-rail-glyph-text">文</span></button>
+      <!-- 读书入口：走模块自己暴露的函数（reading.js 顶层赋值的 window.KnowOriginReading） -->
+      <button class="agent-rail-btn" data-agent-module="reading" aria-label="读书" title="读书"><span class="agent-rail-glyph agent-rail-glyph-text">读</span></button>
       <span class="agent-rail-spring"></span>
       <button class="agent-rail-btn" data-agent-action="settings" aria-label="设置" title="设置">
         <span class="agent-rail-glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.02 7.02 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.55-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.6 7.6 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.39 1.03.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.55 1.62-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58a7.6 7.6 0 0 0 0-1.88Z"></path><circle cx="12" cy="12" r="3"></circle></svg></span>
@@ -492,8 +505,40 @@
   </aside>
 </main>
 
+  <!-- 读书：与课程工作区、文献精读平级的独立模式。
+       加入书架只存元数据（**不建项目**）—— 真要放资料时（导入正文 / 生成收获）
+       才按需建一个 project_type='book' 的项目；
+       生成《读书收获》时，自测题自动沉淀为该项目下的知识卡片。
+       样式与脚本各一行，删掉即完整回退。 -->
+  <main id="reading-workspace" class="reading-workspace hidden" data-top-view>
+    <div class="rd-top">
+      <h1>读书 <small>KnowOrigin Reading</small></h1>
+      <div class="rd-tabs">
+        <button class="rd-tab is-on" type="button" data-rd-tab="shelf">书架</button>
+        <button class="rd-tab" type="button" data-rd-tab="digest">读书收获</button>
+        <button class="rd-tab" type="button" data-rd-tab="net">知识网络</button>
+      </div>
+      <div class="rd-top-right">
+        <!-- 阅读字号：正文 / 高亮片段 / AI 辅助共用一档，四挡可调，落 localStorage -->
+        <div class="rd-fontctl" role="group" aria-label="阅读字号">
+          <button type="button" data-rd-scale="0.9" title="小">A−</button>
+          <button type="button" data-rd-scale="1" title="标准">A</button>
+          <button type="button" data-rd-scale="1.15" title="大">A+</button>
+          <button type="button" data-rd-scale="1.3" title="特大">A++</button>
+        </div>
+        <button class="rd-ghost" type="button" data-rd-exit>返回工作台</button>
+      </div>
+    </div>
+    <div class="rd-wrap">
+      <div class="rd-pane is-on" data-rd-pane="shelf"><div data-rd-shelf></div></div>
+      <div class="rd-pane" data-rd-pane="digest"><div data-rd-digest></div></div>
+      <!-- 跨书知识网络：把各书收获里的「可复用模型」连成一张图，并单独拎出「桥」 -->
+      <div class="rd-pane" data-rd-pane="net"><div data-rd-net></div></div>
+    </div>
+  </main>
+
   <!-- 文献精读：与课程工作区平级的独立模式（scholread 阅读器） -->
-  <main id="literature-workspace" class="literature-workspace hidden">
+  <main id="literature-workspace" class="literature-workspace hidden" data-top-view>
     <div class="lit-topbar">
       <!-- 左区：品牌与当前文献主副标题 -->
       <div class="lit-topbar-left">
@@ -1296,10 +1341,30 @@
   <!-- 语义护照组件：必须排在 app.js 之前 —— 它是 IIFE，加载即挂 window.KBPassport，
        而 app.js 的图谱渲染会直接调它。 -->
   <script src="/static/kb-passport-ui.js?v=20261006-passport-v8" defer></script>
-  <script src="/static/app.js?v=20261007-kb-note-panel-click" defer></script>
+  <script src="/static/app.js?v=20261008-tree-flow-fold" defer></script>
+  <script src="/static/kb-flow-pulse.js?v=20261008-pulse-v3-meteor" defer></script>
+  <script src="/static/kb-tree-flow.js?v=20261008-tree-flow-v2" defer></script>
+  <!-- 神经图谱（沉浸式知识图谱）：必须排在 app.js 之后 —— classic script 共享全局词法环境，
+       它直接读 app.js 的顶层 state，并复用 nodePalette / statusLabel / escapeHtml / kbOpenNode。
+       入口按钮注入到 .graph-toolbar；删掉这一行即完全回退。 -->
+  <script src="/static/kb-neural-view.js?v=20261008-neural-v14" defer></script>
     <!-- Agent 工作台外壳：必须排在 app.js 之后 —— 它要读写 app.js 的顶层 const state
          （classic script 共享全局词法环境），顺序反了拿不到 state -->
-    <script src="/static/agent-shell.js?v=20261007-sidebar-tree1" defer></script>
+    <script src="/static/agent-shell.js?v=20261007-study-doc-reader1" defer></script>
+    <!-- 学习文档：把「一页速查表 + 学习路径 + 清单报告」三类成文产物合并成一份全屏
+         沉浸式阅读台 —— 左目录（可拖宽）+ 正文（一个滚动条读到底）+ 右侧「问 AI」抽屉
+         （选中原文可就地提问）+ 阅读进度 + 沉浸模式。入口是侧栏每个项目行右侧的小图标，
+         由 agent-shell.js 渲染并转发到这里（window.KnowOriginStudyDoc）；
+         样式自带，删掉这一行即完全回退。数据走 /study-kit、/study-kit/generate、
+         /study-kit/ask 三个端点。 -->
+    <script src="/static/study-doc-ui.js?v=20261007-study-doc-reader1" defer></script>
+  <!-- 读书：书架 / 跨书源搜索 / 读书收获 / 自动取正文 / 找文件链接。
+       暴露 window.KnowOriginReading；数据走 /api/reading/* 端点。删掉这一行即完全回退。 -->
+  <script src="/static/reading.js?v=20261007-reading11" defer></script>
+  <!-- 读书 · 神经图谱：把「知识网络」页签里那张跨书知识网画成全屏神经网络。
+       复用 styles-neural.css 的 .ko-nv-layer 材质；入口按钮注入 .rd-head。
+       删掉这一行 + 上面 styles-reading-neural.css 那一行，即完全回退。 -->
+  <script src="/static/rd-neural-view.js?v=20261008-rdneural-v1" defer></script>
   <script src="/static/literature.js?v=20261001-aside-drag" defer></script>
   <!-- 论文全网搜索 & 期刊检索：在文献精读模式注入搜索入口 -->
   <script src="/static/paper-search-ui.js?v=20261001-aside-drag" defer></script>
@@ -1408,27 +1473,50 @@
     // 首屏兜底：登录页与工作台初始都是 hidden，靠 app.js 的 init() 查询会话后决定显示哪个。
     // 若脚本异常或 /api/auth/session 迟迟不返回（服务刚启动、网络卡顿），用户会一直看到
     // 白屏，只能手动刷新——这正是"启动后有时需要刷新才能显示"。这里做一次不依赖 app.js
-    // 的兜底：3 秒后两个视图都还藏着，就强制露出登录页，保证永远有东西可看。
+    // 的兜底：3 秒后所有顶层视图都还藏着，就强制露出登录页，保证永远有东西可看。
+    //
+    // ⚠️ 判定「有没有视图可见」绝不能只盯着 #workspace。顶层视图现在有四个
+    // （工作台 / 文章阅读 / 读书 / 登录壳），任何**一个**可见都算不白屏。
+    // 曾经漏掉 #reading-workspace：登录后 init 还没跑完（loadProjects 慢）时进「读书」，
+    // #workspace 被读书模式隐藏、可见的是 #reading-workspace，兜底误判成白屏，
+    // 于是把登录卡片叠在阅读界面顶上 —— 这就是「打开阅读模式出现登录界面」。
+    // 所以这里按 data-top-view 登记找视图（新增顶层视图只需在 HTML 上打这个属性），
+    // 并保留 id 名单兜底：万一是旧 HTML / 插件改过 DOM，属性缺失也不能误判。
     (function () {
+      var VIEW_IDS = ["auth-shell", "workspace", "literature-workspace", "reading-workspace", "error-banner"];
+
+      function isVisible(node) {
+        if (!node || node.hidden) return false;
+        // 看计算样式而不是 classList：隐藏可能是 !important 规则、inline style 或别的类。
+        var style = window.getComputedStyle(node);
+        return style.display !== "none" && style.visibility !== "hidden";
+      }
+
+      function anyTopViewVisible() {
+        var nodes = [];
+        for (var i = 0; i < VIEW_IDS.length; i += 1) {
+          var node = document.getElementById(VIEW_IDS[i]);
+          if (node) nodes.push(node);
+        }
+        var marked = document.querySelectorAll("[data-top-view]");
+        for (var j = 0; j < marked.length; j += 1) {
+          if (nodes.indexOf(marked[j]) === -1) nodes.push(marked[j]);
+        }
+        for (var k = 0; k < nodes.length; k += 1) {
+          if (isVisible(nodes[k])) return true;
+        }
+        return false;
+      }
+
       window.setTimeout(function () {
-        var auth = document.getElementById("auth-shell");
-        var workspace = document.getElementById("workspace");
-        if (!auth || !workspace) return;
         // app.js 查完会话就会表态（documentElement[data-session-ready="1"]）。
         // 一旦表态，显示哪个视图已由它决定，兜底不该再有发言权——否则迟到的兜底
         // 会把登录页硬塞到已经在用的界面上。
         if (document.documentElement.dataset.sessionReady === "1") return;
-        // 「文章阅读」是第三个顶层视图：进入时 #workspace 会被加上 hidden，
-        // 页面上此刻可见的是 #literature-workspace。只盯着 workspace 会把它
-        // 误判成白屏（刷新后 3 秒内点「文章阅读」正是这个时序），于是登录卡片
-        // 叠在阅读界面顶上。所以任何顶层视图可见时都直接放过。
-        var literature = document.getElementById("literature-workspace");
-        var anyVisible =
-          !auth.classList.contains("hidden") ||
-          !workspace.classList.contains("hidden") ||
-          (literature && !literature.classList.contains("hidden"));
-        if (anyVisible) return;
-        auth.classList.remove("hidden");
+        // 任何顶层视图可见时都直接放过 —— 否则「登录后 init 未跑完就点文章阅读 / 读书」
+        // 会被误判成白屏，登录卡片叠在阅读界面顶上。
+        if (anyTopViewVisible()) return;
+        document.getElementById("auth-shell").classList.remove("hidden");
       }, 3000);
     })();
   </script>

@@ -72,6 +72,10 @@ CHECKS = [
     # 左边界避免 "ask-suggested" 这类词被误判（有过先例）
     ("OpenAI 风格密钥", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}")),
     ("天大平台密钥", re.compile(r"(?<![A-Za-z0-9])tk-[A-Za-z0-9_-]{20,}")),
+    # 微信读书 Agent API 的 Key（wrk- 开头，绑定用户身份，等同账号凭证）。
+    # 读书功能只用环境变量或 data/local_api_config.json（DPAPI 密文）承载，
+    # 仓库里出现这一串就是事故。
+    ("微信读书密钥", re.compile(r"(?<![A-Za-z0-9])wrk-[A-Za-z0-9_-]{16,}")),
     ("内嵌凭据常量", re.compile(r"_(?:TJU|VISION)_API_KEY_ENCODED")),
     ("私钥文件头", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
 ]
