@@ -157,9 +157,32 @@ html[data-theme="light"] #ko-rn-overlay .ko-nv-book { background: rgba(45, 42, 3
 #ko-rn-overlay .ko-nv-book.is-only { border-color: color-mix(in srgb, #ff9aa2 40%, transparent); }
 
 /* ==================================================================
- * 6) 「知识网络」页签里的入口按钮（由 rd-neural-view.js 注入，不改 reading.js）
+ * 6) 概念详解的排版
+ * ------------------------------------------------------------------
+ * 正文由 app.js 的 renderStudyTextContent 产出（与知识点文档同一套渲染器）。
+ * 它把 `#` / `##` / `###` **一律**渲成 `.study-text-heading`（15px/800），
+ * 层级分不出来；而这一层需要的层次是「段落标题 > 书名标签 > 正文」。
+ * 所以：段落标题统一压成 13.5px/600 走香槟金；书名走 `<strong>` 的普通行。
+ * 只压这一层，不动全局 —— 知识点文档那边照旧。
  * ================================================================== */
-.rd-neural-open-btn {
+#ko-rn-overlay .ko-nv-doc-body .study-text-heading {
+  margin: 15px 0 5px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--nv-gold);
+}
+#ko-rn-overlay .ko-nv-doc-body .study-text-heading:first-child { margin-top: 0; }
+#ko-rn-overlay .ko-nv-doc-body .study-text-line { margin: 6px 0; }
+#ko-rn-overlay .ko-nv-doc-body .study-text-line strong { color: var(--nv-text); }
+/* 详解比收获文档更密，列表收紧一点，别让侧栏一屏只放得下两段 */
+#ko-rn-overlay .ko-nv-doc-body .study-text-bullet-list { gap: 4px; margin: 6px 0; }
+#ko-rn-overlay .ko-nv-doc-body .answer-list { margin: 6px 0; padding-left: 20px; }
+#ko-rn-overlay .ko-nv-doc-body > .study-text-blocks { column-count: 1 !important; }
+
+/* ==================================================================
+ * 7) 「知识网络」页签里的入口按钮（由 rd-neural-view.js 注入，不改 reading.js）
+ * ================================================================== */.rd-neural-open-btn {
   display: inline-flex; align-items: center; gap: 8px;
   margin-top: 16px; padding: 8px 16px; border-radius: 999px;
   font-family: var(--rd-sans); font-size: 13px; cursor: pointer;

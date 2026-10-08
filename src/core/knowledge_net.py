@@ -1428,10 +1428,9 @@ def build_concept_doc_fallback(
     return {
         "title": str(item.get("name") or ""),
         "one_liner": "",
-        "in_each_book": [
-            {"book": book, "reading": texts[0][:400], "quote": texts[0][:400]}
-            for book, texts in by_book.items()
-        ],
+        # ⚠️ 这里**不填** in_each_book：兜底渲染走下面的 `_by_book`（原句直出）。
+        # 两边都填会让同一段原句在正文里出现两遍。
+        "in_each_book": [],
         "why_it_matters": "",
         "how_to_spot": "",
         "how_to_use": [],
@@ -1464,65 +1463,76 @@ def render_concept_doc_markdown(
     bridge_splits: int = 0,
     generated_at: str = "",
 ) -> str:
-    """把校验过的详解渲染成 Markdown。空字段直接不渲染那一节（不留空标题）。"""
-    title = result.get("title") or name or "概念详解"
-    parts = [f"# {title}\n"]
+    """把校验过的详解渲染成 Markdown。空字段直接不渲染那一节（不留空标题）。
+
+    ⚠️ **只输出前端渲染器真正支持的构造**。知源的正文渲染器
+    （`app.js` 的 `renderStudyTextContent`，知识框架的神经图谱也用同一个）支持：
+    `#/##/###` 标题、普通行、`- ` 无序列表、`1. ` 有序列表、`| |` 表格、`**粗体**`；
+    **不支持** `>` 引用块、`---` 分隔线、`*斜体*` —— 这三种会被原样当文本打出来
+    （`&gt; 原句…`）。所以原句走「**原句**：…」这种加粗前缀行，分隔线直接不画。
+
+    另外**不写 `# 标题`**：渲染器把 `#`/`##`/`###` 一律渲成同一个类
+    （`.study-text-heading`），层级分不出来；而概念名已经由侧栏的 `<h3>` 大字显示。
+    所以正文从 `##` 起，书名用 `**《书名》**` 加粗行而不是 `###` —— 这样两级层次
+    在视觉上真的分得开（金字段落标题 vs 正文粗体标签）。
+    """
+    parts: list[str] = []
     meta: list[str] = []
     if domain:
-        meta.append(f"所属领域：{domain}")
+        meta.append(f"**所属领域**：{domain}")
     book_list = _as_str_list(list(books))
     if book_list:
-        meta.append("来源：" + "、".join(book_list))
+        meta.append("**来源**：" + "、".join(book_list))
     if is_bridge:
         meta.append(f"★ 桥（去掉它这个领域会裂成 {max(1, int(bridge_splits or 1))} 块）")
     if meta:
-        parts.append("> " + " · ".join(meta) + "\n")
+        parts += [" · ".join(meta), ""]
 
     if result.get("one_liner"):
-        parts.append(f"## 一句话\n\n{result['one_liner']}\n")
+        parts += ["## 一句话", "", str(result["one_liner"]), ""]
 
     rows = result.get("in_each_book") or []
     if rows:
-        blocks: list[str] = []
+        parts += ["## 每本书里怎么说", ""]
         for row in rows:
-            block = f"### {row.get('book') or '（未标注来源）'}\n\n{row.get('reading') or ''}"
+            parts += ["**" + (row.get("book") or "（未标注来源）") + "**", ""]
+            if row.get("reading"):
+                parts += [str(row["reading"]), ""]
             if row.get("quote"):
-                block += "\n\n> " + str(row["quote"]).replace("\n", " ")
-            blocks.append(block)
-        parts.append("## 每本书里怎么说\n\n" + "\n\n".join(blocks) + "\n")
+                parts += ["**原句**：" + str(row["quote"]).replace("\n", " "), ""]
 
     by_book = result.get("_by_book")
     if isinstance(by_book, dict) and by_book:
-        blocks = [
-            f"### {book}\n\n" + "\n".join(f"> {t}" for t in texts)
-            for book, texts in by_book.items()
-        ]
-        parts.append("## 各本书里的原句\n\n" + "\n\n".join(blocks) + "\n")
+        parts += ["## 各本书里的原句", ""]
+        for book, texts in by_book.items():
+            parts += ["**" + str(book) + "**", ""]
+            parts += ["- " + str(t).replace("\n", " ") for t in texts]
+            parts.append("")
 
     rel = result.get("_relations")
     if isinstance(rel, list) and rel:
         lines = [f"- **{r.get('relation') or '相关'}**：{r.get('other') or ''}" for r in rel if r.get("other")]
         if lines:
-            parts.append("## 它连着什么\n\n" + "\n".join(lines) + "\n")
+            parts += ["## 它连着什么", ""] + lines + [""]
 
     if result.get("why_it_matters"):
-        parts.append(f"## 为什么值得记住\n\n{result['why_it_matters']}\n")
+        parts += ["## 为什么值得记住", "", str(result["why_it_matters"]), ""]
     if result.get("how_to_spot"):
-        parts.append(f"## 怎么认出它\n\n{result['how_to_spot']}\n")
+        parts += ["## 怎么认出它", "", str(result["how_to_spot"]), ""]
     if result.get("how_to_use"):
-        parts.append("## 怎么用它\n\n" + "\n".join(f"- {x}" for x in result["how_to_use"]) + "\n")
+        parts += ["## 怎么用它", ""] + [f"- {x}" for x in result["how_to_use"]] + [""]
     if result.get("pitfalls"):
-        parts.append("## 容易搞错的地方\n\n" + "\n".join(f"- {x}" for x in result["pitfalls"]) + "\n")
+        parts += ["## 容易搞错的地方", ""] + [f"- {x}" for x in result["pitfalls"]] + [""]
     if result.get("conflicts"):
-        parts.append(f"## 两本书在这里说法冲突\n\n{result['conflicts']}\n")
+        parts += ["## 两本书在这里说法冲突", "", str(result["conflicts"]), ""]
     if result.get("beyond"):
-        parts.append(f"## 往外发散（网外的联想，不是书里写的）\n\n{result['beyond']}\n")
+        parts += ["## 往外发散（网外的联想，不是书里写的）", "", str(result["beyond"]), ""]
     if result.get("confidence_note"):
-        parts.append(f"## 证据强度\n\n{result['confidence_note']}\n")
+        parts += ["## 证据强度", "", str(result["confidence_note"]), ""]
     if generated_at:
-        parts.append(f"---\n\n*生成于 {generated_at}。详解只依据你在各本书《读书收获》里留下的内容。*\n")
+        parts += [f"生成于 {generated_at}。详解只依据你在各本书《读书收获》里留下的内容。", ""]
 
-    return "\n".join(parts)
+    return "\n".join(parts).rstrip() + "\n"
 
 
 # --------------------------------------------------------------------------

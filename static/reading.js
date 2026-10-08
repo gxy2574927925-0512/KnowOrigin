@@ -642,73 +642,12 @@
     }).join("") + "</div>";
   }
 
-  // 布局：每个簇画成一个圆环，簇与簇横向排开。
-  // 刻意不上力导向 —— 力导向每次刷新位置都不同，用户会失去空间记忆；
-  // 而「桥在两个环之间」这个视觉关系，正是我们要让人一眼看到的。
-  function layoutNet(data, width, height) {
-    var clusters = data.clusters || [];
-    var nodes = {};
-    (data.nodes || []).forEach(function (n) { nodes[n.concept_key] = n; });
-    var pos = {};
-    var gapX = clusters.length > 1 ? (width - 160) / (clusters.length - 1) : 0;
-    clusters.forEach(function (group, ci) {
-      var cx = clusters.length > 1 ? 80 + ci * gapX : width / 2;
-      var cy = height / 2;
-      var radius = Math.max(38, Math.min(96, 16 * group.length));
-      group.forEach(function (key, ni) {
-        var angle = (Math.PI * 2 * ni) / Math.max(1, group.length) - Math.PI / 2;
-        pos[key] = {
-          x: cx + radius * Math.cos(angle),
-          y: cy + radius * Math.sin(angle),
-          node: nodes[key] || { concept_key: key, name: key, books: [] },
-        };
-      });
-    });
-    return pos;
-  }
-
-  function netSvgMarkup(data) {
-    var nodes = data.nodes || [];
-    var edges = data.edges || [];
-    if (!nodes.length) return "";
-    var width = 960;
-    var height = Math.max(280, Math.min(520, 90 + 40 * Math.max.apply(null, [1].concat((data.clusters || []).map(function (c) { return c.length; })))));
-    var pos = layoutNet(data, width, height);
-    var bridgeKeys = {};
-    (data.bridges || []).forEach(function (b) { bridgeKeys[b.concept_key] = b.clusters_joined || 1; });
-    var hubKeys = {};
-    (data.hubs || []).forEach(function (h) { hubKeys[h.concept_key] = h.degree || 0; });
-    var maxHub = Math.max.apply(null, [1].concat(Object.keys(hubKeys).map(function (k) { return hubKeys[k]; })));
-
-    var lines = edges.map(function (e) {
-      var a = pos[e.source];
-      var b = pos[e.target];
-      if (!a || !b) return "";
-      var isBridgeEdge = bridgeKeys[e.source] || bridgeKeys[e.target];
-      return '<line x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1)
-        + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1)
-        + '" stroke="' + (isBridgeEdge ? "#EF9F27" : "#B4B2A9")
-        + '" stroke-width="' + (isBridgeEdge ? 1.6 : 0.8) + '" opacity="' + (isBridgeEdge ? 0.95 : 0.6) + '"/>';
-    }).join("");
-
-    var circles = Object.keys(pos).map(function (key) {
-      var item = pos[key];
-      var isBridge = !!bridgeKeys[key];
-      var degree = hubKeys[key] || 0;
-      var r = isBridge ? 9 : 5 + 5 * (degree / maxHub);
-      var fill = isBridge ? "#EF9F27" : "#85B7EB";
-      var label = String(item.node.name || "").slice(0, 8);
-      return '<circle cx="' + item.x.toFixed(1) + '" cy="' + item.y.toFixed(1) + '" r="' + r.toFixed(1)
-        + '" fill="' + fill + '" stroke="#fff" stroke-width="1"/>'
-        + '<text x="' + item.x.toFixed(1) + '" y="' + (item.y - r - 4).toFixed(1)
-        + '" font-size="10" text-anchor="middle" fill="' + (isBridge ? "#854F0B" : "#5F5E5A")
-        + '">' + esc(label) + "</text>";
-    }).join("");
-
-    return '<svg viewBox="0 0 ' + width + " " + height + '" width="100%" style="margin-top:18px;'
-      + 'background:var(--rd-paper-2);border-radius:var(--border-radius-lg)">'
-      + lines + circles + "</svg>";
-  }
+  // 图的画法已经搬到**全屏神经图谱**（static/rd-neural-view.js）。
+  // 这一页原来那张扁平 SVG（每簇一个圆环、桥用琥珀色大点）已删除：
+  // 它和神经图谱重复，而且簇一多圆环就互相叠、标签被面板边缘切掉、也没有任何交互。
+  // 保留的是这一页真正只有它有、且神经图谱还没搬走的东西 —— 下面的统计、桥、枢纽、
+  // 概念成熟度、已生成方法论、可能该合并的概念。
+  // → 要回退到那张 SVG，从 git 历史里取 netSvgMarkup / layoutNet 两个函数即可。
 
   function renderNet(host, data) {
     var summary = data.summary || {};
@@ -723,7 +662,8 @@
       return;
     }
 
-    html += netSvgMarkup(data);
+    // 这里原来画一张扁平 SVG 图（netSvgMarkup）。已删除 —— 见上方注释：
+    // 图现在只由全屏神经图谱负责，这一页保留统计与下面的文字区块。
 
     // 桥：单独拎出来
     var bridges = data.bridges || [];

@@ -26173,6 +26173,200 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    def _concept_excerpts(owner_id: str, concept_key: str, books: list[str]) -> list[dict[str, str]]:
+        """各本书《读书收获》里**提到这个概念**的原句。纯取材料，不调模型。
+
+        只按概念键匹配（不按名字字符串）—— 收获里的叫法可能与网里的规范名不同，
+        名字比对会漏。书单为空时退回全量扫（宁可多给，也别给空材料）。
+        """
+        wanted = {str(b).strip() for b in books if str(b).strip()}
+        out: list[dict[str, str]] = []
+        for digest in _reading_digests(owner_id):
+            book = str(digest.get("book") or "")
+            if wanted and book not in wanted:
+                continue
+            for item in digest.get("models") or []:
+                if not isinstance(item, dict):
+                    continue
+                if knowledge_net_mod.concept_key(item.get("name")) != concept_key:
+                    continue
+                parts = [str(item.get("what") or "").strip()]
+                if str(item.get("how_to_use") or "").strip():
+                    parts.append("怎么用：" + str(item["how_to_use"]).strip())
+                if str(item.get("where") or "").strip():
+                    parts.append("出处：" + str(item["where"]).strip())
+                text = " ｜ ".join(p for p in parts if p)
+                if text:
+                    out.append({"book": book, "text": text})
+            for item in digest.get("connections") or []:
+                if not isinstance(item, dict):
+                    continue
+                if knowledge_net_mod.concept_key(item.get("name")) != concept_key:
+                    continue
+                note = str(item.get("note") or "").strip()
+                if note:
+                    out.append({
+                        "book": book,
+                        "text": f"（这本书把它当作「{str(item.get('relation') or '相关')}」的关联对象）{note}",
+                    })
+        return out
+
+    def _net_concept_bundle(owner_id: str, concept_key: str) -> dict[str, Any]:
+        """把一个概念在网里的全部上下文收成一个包：节点 / 支持度 / 桥 / 领域 / 关系 / 材料。"""
+        data = _net_analysis(owner_id)
+        by_key = {n["concept_key"]: n for n in data.get("nodes") or []}
+        node = by_key.get(concept_key)
+        if not node:
+            return {}
+        support = next(
+            (s for s in (data.get("support") or []) if s.get("concept_key") == concept_key), {}
+        )
+        bridge = next(
+            (b for b in (data.get("bridges") or []) if b.get("concept_key") == concept_key), None
+        )
+        # 领域 = 该概念所在的连通分量。名字取分量里度数最高的那个概念（与前端模块标签同一口径）。
+        members: list[str] = []
+        for group in data.get("clusters") or []:
+            if concept_key in group:
+                members = list(group)
+                break
+        def _deg(k: str) -> int:
+            return sum(
+                1 for e in (data.get("edges") or [])
+                if e.get("source") == k or e.get("target") == k
+            )
+        ordered = sorted(members, key=lambda k: (-_deg(k), str((by_key.get(k) or {}).get("name") or "")))
+        domain = {
+            "name": str((by_key.get(ordered[0]) or {}).get("name") or "") if ordered else "",
+            "size": len(members),
+            "members": [str((by_key.get(k) or {}).get("name") or k) for k in ordered],
+        }
+        relations: list[dict[str, str]] = []
+        for edge in data.get("edges") or []:
+            if edge.get("source") != concept_key and edge.get("target") != concept_key:
+                continue
+            other = edge.get("target") if edge.get("source") == concept_key else edge.get("source")
+            relations.append({
+                "other": str((by_key.get(other) or {}).get("name") or other),
+                "kind": str(edge.get("kind") or "same"),
+                "note": str(edge.get("note") or ""),
+            })
+        books = [str(b) for b in (node.get("books") or [])]
+        concept = {
+            "name": str(node.get("name") or concept_key),
+            "books": books,
+            "support": support,
+            "is_bridge": bool(bridge),
+            "bridge_splits": int((bridge or {}).get("clusters_joined") or 0),
+        }
+        return {
+            "concept": concept,
+            "domain": domain,
+            "relations": relations,
+            "excerpts": _concept_excerpts(owner_id, concept_key, books),
+        }
+
+    @application.get("/api/reading/net/concepts/{concept_key}/doc")
+    async def reading_net_concept_doc(concept_key: str, request: Request) -> dict[str, Any]:
+        """读某个概念的详解（没生成过就返回 ``doc: null``）。"""
+        user = require_user(request)
+        doc = await asyncio.to_thread(net_store().get_concept_doc, user.user_id, concept_key)
+        if not doc:
+            return {"doc": None}
+        return {"doc": {
+            "concept_key": doc.get("concept_key"),
+            "name": doc.get("name"),
+            "title": doc.get("title"),
+            "content_md": doc.get("content_md"),
+            "updated_at": doc.get("updated_at"),
+        }}
+
+    @application.post("/api/reading/net/concepts/{concept_key}/doc")
+    async def reading_net_generate_concept_doc(
+        concept_key: str, request: Request, refresh: bool = False
+    ) -> dict[str, Any]:
+        """为跨书知识网络里的**一个概念**生成详解。
+
+        结果按「概念 + 材料指纹」缓存（``concept_doc_signature``）：材料没变直接复用、
+        不重跑模型；材料变了自动失效；``?refresh=true`` 强制重算。
+        材料 = 各本书《读书收获》里**提到这个概念**的原句 + 它与其他概念的关系。
+        """
+        user = require_user(request)
+        if not application.state.settings.tju_api_key and application.state.llm.responder is None:
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload(
+                    "api_key_required",
+                    "生成概念详解需要大模型 API。请先登录后在「API 配置」里填写 API Key。",
+                ),
+            )
+        bundle = await asyncio.to_thread(_net_concept_bundle, user.user_id, concept_key)
+        if not bundle:
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload("net_concept_not_found", "这个概念还不在网络里。"),
+            )
+        concept = bundle["concept"]
+        relations = bundle["relations"]
+        excerpts = bundle["excerpts"]
+        store = net_store()
+        signature = knowledge_net_mod.concept_doc_signature(concept, relations, excerpts)
+
+        def _doc_view(saved: dict[str, Any], *, cached: bool, degraded: bool) -> dict[str, Any]:
+            return {
+                "doc": {
+                    "concept_key": saved.get("concept_key"),
+                    "name": saved.get("name"),
+                    "title": saved.get("title"),
+                    "content_md": saved.get("content_md"),
+                    "updated_at": saved.get("updated_at"),
+                },
+                "cached": cached,
+                "degraded": degraded,
+            }
+
+        if not refresh:
+            cached = await asyncio.to_thread(store.get_concept_doc, user.user_id, concept_key)
+            if cached and cached.get("signature") == signature and cached.get("content_md"):
+                return _doc_view(cached, cached=True, degraded=False)
+
+        payload = knowledge_net_mod.build_concept_doc_payload(
+            concept, relations, excerpts, domain=bundle["domain"]
+        )
+        result: dict[str, Any] = {}
+        if application.state.settings.tju_api_key or application.state.llm.responder is not None:
+            try:
+                raw = await asyncio.to_thread(
+                    application.state.llm.complete_json, "make_concept_doc", payload
+                )
+                result = knowledge_net_mod.normalize_concept_doc_result(raw)
+            except Exception as exc:  # noqa: BLE001 —— 失败走兜底，不是 500
+                LOGGER.warning("concept doc generation failed: %s", exc)
+                result = {}
+        # 兜底**不编详解**，只把各本书里的原句摆出来（与方法论兜底同一原则）。
+        used_fallback = not knowledge_net_mod.concept_doc_has_content(result)
+        if used_fallback:
+            result = knowledge_net_mod.build_concept_doc_fallback(concept, relations, excerpts)
+        content_md = knowledge_net_mod.render_concept_doc_markdown(
+            result,
+            name=concept["name"],
+            books=concept["books"],
+            domain=bundle["domain"]["name"],
+            is_bridge=concept["is_bridge"],
+            bridge_splits=concept["bridge_splits"],
+            generated_at=knowledge_doc_mod.local_stamp(),
+        )
+        saved = await asyncio.to_thread(
+            store.save_concept_doc,
+            user.user_id,
+            concept_key=concept_key,
+            name=concept["name"],
+            signature=signature,
+            result=result,
+            content_md=content_md,
+        )
+        return _doc_view(saved, cached=False, degraded=used_fallback)
+
     @application.post("/api/projects/{project_id}/nodes/{node_id}/doc")
     async def generate_node_doc(
         project_id: str,

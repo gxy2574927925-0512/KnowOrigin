@@ -261,6 +261,10 @@
     size: { w: 0, h: 0 },
     cur: { orb: null, mods: new Map(), nodes: new Map() },
     _renderedMod: undefined,
+    // 概念详解：按 concept_key 缓存（生成一次不再重复拉）。docSeq 用来丢弃过期响应 ——
+    // 切概念比请求返回快时，A 的详解会被贴到 B 上。
+    docCache: new Map(),
+    docSeq: 0,
     ask: { busy: false, thread: [], domA: null, overview: "" },
   };
 
@@ -710,6 +714,10 @@
           <header><i></i><b>桥</b><small>去掉它这个领域会裂开</small></header>
           <p class="ko-nv-edge-note">去掉「${escapeText(m.nameOf(key))}」，网络会多出 <b>${bridge.clusters_joined || 1}</b> 个断开的块 —— 它同时被 ${books.length ? escapeText(books.join("、")) : "多本书"} 指向，是两个原本无关的方向之间唯一的接口。</p>
         </div>` : ""}
+        <section class="ko-nv-sec ko-nv-doc-sec">
+          <h4>概念详解 <em>Document</em><span class="ko-nv-doc-badge" data-rn-doc-badge>读取中</span></h4>
+          <div class="ko-nv-doc-body" data-rn-doc-body><p class="ko-nv-empty-line">正在读取详解…</p></div>
+        </section>
         <section class="ko-nv-sec">
           <h4>来源书单 <em>Sources</em></h4>
           ${books.length
@@ -745,6 +753,73 @@
     });
     const sc = panel.querySelector(".ko-nv-panel-scroll");
     if (sc) sc.scrollTop = 0;
+    loadConceptDoc(key);
+  }
+
+  // —— 概念详解：读 / 生成 ——
+  //
+  // 光有「被几本书支持 / 关联了谁」这些元数据不算干货 —— 读者点开一个概念，
+  // 要的是「它到底是什么、每本书里分别怎么说」。详解由后端按「概念 + 材料指纹」
+  // 缓存，所以这里只管拉；没生成过就给一个按钮，点了才花那一两分钟。
+  async function loadConceptDoc(key) {
+    const panel = V.dom && V.dom.panel;
+    if (!panel) return;
+    const seq = ++V.docSeq;
+    const badge = panel.querySelector("[data-rn-doc-badge]");
+    let doc = V.docCache.get(key);
+    if (doc === undefined) {
+      if (badge) badge.textContent = "读取中";
+      try {
+        const resp = await fetch(
+          `/api/reading/net/concepts/${encodeURIComponent(key)}/doc`,
+          { credentials: "same-origin" }
+        );
+        const data = resp.ok ? await resp.json() : null;
+        doc = (data && data.doc) || null;
+      } catch (_) { doc = null; }
+      V.docCache.set(key, doc);
+    }
+    // 期间用户可能已经切到别的概念 —— 丢弃过期结果，别把 A 的详解贴到 B 上
+    if (seq !== V.docSeq || !V.dom || V.dom.panel.hidden || V.sel !== key) return;
+    const el = panel.querySelector("[data-rn-doc-body]");
+    if (!el) return;
+    if (doc && String(doc.content_md || "").trim()) {
+      if (badge) badge.textContent = "已生成";
+      el.innerHTML = renderMarkdown(doc.content_md);
+      return;
+    }
+    if (badge) badge.textContent = "未生成";
+    const bc = V.model.bookCountOf(key);
+    el.innerHTML = `<p class="ko-nv-empty-line">还没有详解。生成后会读各本书《读书收获》里提到这个概念的部分，可能要一两分钟。</p>
+      ${bc
+        ? `<button class="ko-nv-pill" type="button" data-rn-gen-doc>生成概念详解</button>`
+        : `<p class="ko-nv-empty-line">这个概念还没有来源书，先生成它的《读书收获》。</p>`}`;
+    const btn = el.querySelector("[data-rn-gen-doc]");
+    if (btn) btn.addEventListener("click", () => genConceptDoc(key, btn));
+  }
+
+  async function genConceptDoc(key, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "正在生成…（要读各本书的收获，可能一两分钟）"; }
+    try {
+      const resp = await fetch(
+        `/api/reading/net/concepts/${encodeURIComponent(key)}/doc`,
+        { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}" }
+      );
+      if (!resp.ok) {
+        let detail = "";
+        try { const d = await resp.json(); detail = (d && d.detail && (d.detail.message || d.detail)) || ""; } catch (_) { /* 用状态码 */ }
+        throw new Error(detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      V.docCache.delete(key);
+      await loadConceptDoc(key);
+      toast(data && data.degraded
+        ? "模型这次没给出详解，已先把各本书里的原句列出来。"
+        : "概念详解已生成。");
+    } catch (err) {
+      toast("生成概念详解失败：" + ((err && err.message) || "未知错误"), "error");
+      if (btn) { btn.disabled = false; btn.textContent = "生成失败，点此重试"; }
+    }
   }
 
   /** 就着这个概念所在的**簇**生成方法论（后端按 cluster_key 去重，簇变了自然失效重建）。 */
@@ -1469,6 +1544,8 @@
     V.time = 0; V.paused = false; V.warned = false;
     V.stage = "hub"; V.mod = null; V.sel = null; V.hover = null;
     V._renderedMod = undefined;
+    V.docCache.clear();
+    V.docSeq += 1;          // 让上一轮还没回来的详解请求全部作废
     resetCur();
     resetAsk();
     measure();
