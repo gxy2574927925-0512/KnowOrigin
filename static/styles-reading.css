@@ -258,7 +258,7 @@ html[data-theme="dark"] #reading-workspace {
 
 #reading-workspace .rd-ask {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 1560;
-  width: clamp(330px, 30vw, 420px);
+  width: clamp(330px, calc(30 * var(--vwi)), 420px);
   display: flex; flex-direction: column;
   background: var(--rd-paper-2); border-left: 1px solid var(--rd-line-2);
   box-shadow: -14px 0 34px -20px rgba(0, 0, 0, .45);
@@ -328,7 +328,7 @@ html[data-theme="dark"] #reading-workspace {
 /* 抽屉是覆盖式的，正文会被它压掉一块 —— 开着的时候把阅读区右侧让出来，
    于是正文整体左移而不是被盖住（窄屏抽屉铺满，让了也没用，就不让）。 */
 body.rd-ask-open #reading-workspace .rd-wrap {
-  padding-right: calc(34px + clamp(330px, 30vw, 420px));
+  padding-right: calc(34px + clamp(330px, calc(30 * var(--vwi)), 420px));
 }
 @media (max-width: 720px) {
   body.rd-ask-open #reading-workspace .rd-wrap { padding-right: 34px; }

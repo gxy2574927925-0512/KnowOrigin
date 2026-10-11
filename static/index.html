@@ -18,20 +18,22 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="知源">
-<link rel="stylesheet" href="/static/styles.css?v=20261007-card-answer-collapsed">
-<link rel="stylesheet" href="/static/styles-passport.css?v=20261006-passport-v10">
+<link rel="stylesheet" href="/static/styles.css?v=20261010-ui-scale-v3">
+<link rel="stylesheet" href="/static/styles-passport.css?v=20261010-ui-scale-v3">
   <!-- classic 浅色配色回退层：必须排在 styles.css 之后，才能压住被迁到 token 的暖色。
        只带 html[data-ui="classic"]:where(:not([data-theme="dark"])) 作用域，深色下让位给
        styles.css 的 html[data-theme="dark"] 规则（否则 classic 深色 = 白底浅字）。 -->
     <link rel="stylesheet" href="/static/classic-palette.css?v=20261005-morandi1">
     <!-- Agent 工作台布局：必须排在 styles.css 之后，才能靠加载顺序覆盖它 -->
-    <link rel="stylesheet" href="/static/agent-layout.css?v=20261008-suggested-scroll1">
-  <link rel="stylesheet" href="/static/styles-literature.css?v=20261006-topbar-icon-fix">
+    <link rel="stylesheet" href="/static/agent-layout.css?v=20261010-ui-scale-v3">
+  <link rel="stylesheet" href="/static/styles-literature.css?v=20261011-cross-hl-v1">
+  <!-- 文献精读 · 整页对照翻译（版式保真）：右栏译文页图。删掉这行即完全回退。 -->
+  <link rel="stylesheet" href="/static/styles-pdf-spread.css?v=20261011-cross-hl-v1">
   <!-- 读书：独立模式（书架 / 搜索 / 读书收获）。规则锁在 #reading-workspace 内，
        摘掉这一行即完整回退。 -->
-  <link rel="stylesheet" href="/static/styles-reading.css?v=20261007-reading7">
+  <link rel="stylesheet" href="/static/styles-reading.css?v=20261010-ui-scale-v3">
   <!-- 海小棠桌宠：陪伴关怀模块（低侵入，独立前缀，登录后展示） -->
-  <link rel="stylesheet" href="/static/hxt-pet.css?v=20260930-hxt-checklist-ask">
+  <link rel="stylesheet" href="/static/hxt-pet.css?v=20261010-ui-scale-v3">
   <!-- KaTeX 已本地化到 static/vendor/：校园网 / VPN / 断网环境下公式仍可渲染 -->
   <link rel="stylesheet" href="/static/vendor/katex.min.css">
   <!-- 质感与交互增强层：全部规则用 :where() 包裹（优先级 0），只填空不覆盖，
@@ -44,7 +46,7 @@
   <!-- 神经图谱（沉浸式知识图谱）：全部规则锁在 .ko-nv-layer 作用域内，
        入口按钮由 kb-neural-view.js 注入图谱工具栏（不改 app.js）。
        删掉这一行 + 下面 kb-neural-view.js 那一行，即完全回退。 -->
-  <link rel="stylesheet" href="/static/styles-neural.css?v=20261008-neural-v15">
+  <link rel="stylesheet" href="/static/styles-neural.css?v=20261010-ui-scale-v3">
   <!-- 读书的神经图谱：复用上面那套 .ko-nv-layer 材质，只补本层独有的
        （放射节点 / 类型化边 / 图例 / 概念卡分组）。
        删掉这一行 + 下面 rd-neural-view.js 那一行，即回到原来的 SVG 圆环图。 -->
@@ -572,9 +574,10 @@
 
       <!-- 右区：操作与学术工具箱（外部插件由此自动挂载） -->
       <div id="lit-topbar-actions" class="lit-topbar-actions">
-        <button id="lit-library-toggle" class="secondary-button" type="button" title="打开或关闭文献库管理面板">
+        <button id="lit-library-toggle" class="lit-nav-toggle" type="button" aria-pressed="false" title="打开文献库">
           <span class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
-          <span>我的文献</span>
+          <span class="lit-nav-toggle-text" id="lit-library-toggle-text">文献库</span>
+          <span class="lit-nav-toggle-badge" id="lit-library-count" hidden>0</span>
         </button>
         <button id="lit-info-button" class="icon-button" type="button" aria-label="查看文献信息" title="文献元数据与引用导出">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -592,6 +595,11 @@
 
     <div class="sr-layout">
       <aside class="sr-col sr-aside" aria-label="阅读助手">
+        <!-- 阅读助手收起/展开：整页对照看不清时收起它，正文能宽出一整栏 -->
+        <button id="lit-aside-collapse" class="lit-aside-collapse" type="button" aria-pressed="false"
+                title="收起阅读助手" aria-label="收起阅读助手">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
         <!-- 助手面板专属导航栏（吸附于侧栏顶部） -->
         <nav class="sr-tabs" role="tablist" aria-label="阅读助手标签">
           <button class="sr-tab active" type="button" role="tab" aria-selected="true" data-tab="qa"><span class="sr-tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>AI 问答</button>
@@ -603,42 +611,144 @@
         </nav>
 
         <div id="lit-library-panel" class="sr-panel sr-library hidden">
-          <div class="lit-library-actions">
-            <button id="lit-upload-button" class="primary-button" type="button">＋ 导入论文</button>
-            <input id="lit-file-input" type="file" accept=".pdf,.txt" hidden>
-          </div>
-          <div id="lit-import-progress" class="lit-import-progress hidden">
-            <div class="lit-import-progress-heading">
-              <strong>正在上传文件</strong>
-              <span>0%</span>
-            </div>
-            <div class="lit-import-progress-track" aria-hidden="true"><i></i></div>
-            <p class="lit-import-progress-detail">准备上传…</p>
-          </div>
-          <div class="lit-compare-bar" id="lit-synthesis-bar">
-            <div class="lit-compare-status-row">
-              <span class="lit-compare-title">多文献研读</span>
-              <div class="lit-compare-status-right">
-                <span id="lit-compare-count" class="lit-compare-count">已选 0 篇</span>
-                <button id="lit-compare-clear" class="lit-compare-clear-btn hidden" type="button" title="清空已选文献">清空</button>
+          <div class="lit-lib-body">
+            <!-- 左栏：筛选 / 排序 -->
+            <aside class="lit-rail" aria-label="文献筛选与排序">
+              <div class="lit-library-filters lit-rail-search">
+                <svg class="lit-rail-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                <input id="lit-search" type="search" placeholder="搜索标题 / 作者 / 标签 / DOI" autocomplete="off">
               </div>
-            </div>
-            <div class="lit-compare-pill-group" role="group" aria-label="多文献研读分析工具">
-              <button id="lit-compare-button" class="lit-cmp-pill-btn secondary-button" type="button" disabled title="请勾选 2-4 篇文献生成深度 AI 综合对比报告">
-                <span class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
-                <span>文本对比</span>
-              </button>
-            </div>
-          </div>
-          <div class="lit-library-filters">
-            <input id="lit-search" type="search" placeholder="搜索标题 / 作者 / 标签" autocomplete="off">
-          </div>
-          <div id="lit-list" class="lit-list empty-state">
-            <p>还没有文献。点击「导入论文」上传 PDF。</p>
+
+              <div class="lit-rail-group">
+                <h4>阅读状态</h4>
+                <div class="lit-rail-chips" data-lit-filter="status" role="group" aria-label="按阅读状态筛选">
+                  <button type="button" class="lit-rail-chip" data-value="all" aria-pressed="true">全部</button>
+                  <button type="button" class="lit-rail-chip" data-value="unread" aria-pressed="false">未读</button>
+                  <button type="button" class="lit-rail-chip" data-value="reading" aria-pressed="false">在读</button>
+                  <button type="button" class="lit-rail-chip" data-value="done" aria-pressed="false">已读</button>
+                </div>
+              </div>
+
+              <div class="lit-rail-group">
+                <h4>元数据</h4>
+                <div class="lit-rail-chips" data-lit-filter="meta" role="group" aria-label="按元数据抽取状态筛选">
+                  <button type="button" class="lit-rail-chip" data-value="all" aria-pressed="true">全部</button>
+                  <button type="button" class="lit-rail-chip" data-value="done" aria-pressed="false">已抽取</button>
+                  <button type="button" class="lit-rail-chip" data-value="pending" aria-pressed="false">待抽取</button>
+                </div>
+              </div>
+
+              <div class="lit-rail-group">
+                <h4>排序</h4>
+                <div class="lit-rail-chips" data-lit-filter="sort" role="group" aria-label="排序方式">
+                  <button type="button" class="lit-rail-chip" data-value="imported" aria-pressed="true">最近导入</button>
+                  <button type="button" class="lit-rail-chip" data-value="opened" aria-pressed="false">最近打开</button>
+                  <button type="button" class="lit-rail-chip" data-value="readtime" aria-pressed="false">阅读时长</button>
+                  <button type="button" class="lit-rail-chip" data-value="year" aria-pressed="false">发表年份</button>
+                </div>
+              </div>
+
+              <div class="lit-rail-hr" aria-hidden="true"></div>
+
+              <div class="lit-rail-group">
+                <h4>我的合集</h4>
+                <div class="lit-rail-list" id="lit-collections"></div>
+              </div>
+
+              <div class="lit-rail-hr" aria-hidden="true"></div>
+
+              <div class="lit-rail-foot">
+                <button id="lit-upload-button" class="primary-button lit-rail-import" type="button">＋ 导入论文</button>
+                <button id="lit-rail-compare" class="lit-rail-item" type="button" title="已勾选用于对比的文献">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v12H4z"/><path d="m4 20 4-4M20 20l-4-4"/></svg>
+                  <span>多文献对比</span>
+                  <span class="n" id="lit-rail-compare-count">0</span>
+                </button>
+              </div>
+            </aside>
+
+            <!-- 右栏：文献卡片列表 -->
+            <section class="lit-lib-main" aria-label="文献列表">
+              <header class="lit-lib-head">
+                <div>
+                  <h1>文献库</h1>
+                  <p class="lit-lib-hint">导入的 PDF / 粘贴的文本会自动抽取元数据，建成独立项目<span class="lit-lib-count" id="lit-lib-count"></span></p>
+                </div>
+              </header>
+
+              <div class="lit-lib-stats" id="lit-lib-stats"></div>
+
+              <div class="lit-lib-tabs" role="tablist" aria-label="文献快速筛选">
+                <button type="button" role="tab" aria-selected="true" data-lit-tab="all">全部 <span class="n" data-lit-tab-count="all">0</span></button>
+                <button type="button" role="tab" aria-selected="false" data-lit-tab="reading">在读 <span class="n" data-lit-tab-count="reading">0</span></button>
+                <button type="button" role="tab" aria-selected="false" data-lit-tab="done">已读 <span class="n" data-lit-tab-count="done">0</span></button>
+                <button type="button" role="tab" aria-selected="false" data-lit-tab="pending">待抽取 <span class="n" data-lit-tab-count="pending">0</span></button>
+              </div>
+
+              <!-- 保留 .lit-library-actions 当锚点：paper-search-ui.js 会往它后面插 #ps-container。
+                   导入按钮已移到左栏底部，这里只留隐藏的文件输入。 -->
+              <div class="lit-library-actions" hidden>
+                <input id="lit-file-input" type="file" accept=".pdf,.txt" hidden>
+              </div>
+              <div id="lit-import-progress" class="lit-import-progress hidden">
+                <div class="lit-import-progress-heading">
+                  <strong>正在上传文件</strong>
+                  <span>0%</span>
+                </div>
+                <div class="lit-import-progress-track" aria-hidden="true"><i></i></div>
+                <p class="lit-import-progress-detail">准备上传…</p>
+              </div>
+
+              <div class="lit-lib-toolbar">
+                <span class="lit-lib-sort">排序：<b id="lit-lib-sort-label">最近导入</b> ↓</span>
+                <div class="lit-compare-bar" id="lit-synthesis-bar">
+                  <div class="lit-compare-status-row">
+                    <span class="lit-compare-title">多文献研读</span>
+                    <div class="lit-compare-status-right">
+                      <span id="lit-compare-count" class="lit-compare-count">已选 0 篇</span>
+                      <button id="lit-compare-clear" class="lit-compare-clear-btn hidden" type="button" title="清空已选文献">清空</button>
+                    </div>
+                  </div>
+                  <div class="lit-compare-pill-group" role="group" aria-label="多文献研读分析工具">
+                    <button id="lit-compare-button" class="lit-cmp-pill-btn secondary-button" type="button" disabled title="请勾选 2-4 篇文献生成深度 AI 综合对比报告">
+                      <span class="tb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+                      <span>文本对比</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div id="lit-list" class="lit-list empty-state">
+                <p>还没有文献。点击「导入论文」上传 PDF。</p>
+              </div>
+            </section>
           </div>
         </div>
 
         <div class="sr-panel" data-panel="qa">
+          <!-- 相关原文定位：提问/给关键词后，把最相关的原文段落连带页码、相对置信度列出来，
+               点一条直接跳到原页对应位置。滑块与下拉放在这里而不是 JS 里重建 ——
+               列表每次筛选都重绘，若把滑块也包进去，拖动会被自己打断。 -->
+          <section id="lit-evidence" class="lit-evidence" hidden aria-label="相关原文定位">
+            <div class="lit-ev-head">
+              <span class="lit-ev-title">相关原文 <b id="lit-ev-count">—</b></span>
+              <div class="lit-ev-tools">
+                <label class="lit-ev-sort" for="lit-ev-sort">排序
+                  <select id="lit-ev-sort">
+                    <option value="document" selected>原文顺序</option>
+                    <option value="relevance">相关性</option>
+                  </select>
+                </label>
+                <button id="lit-ev-clear" class="lit-ev-clear" type="button" title="清空相关原文">清空</button>
+              </div>
+            </div>
+            <label class="lit-ev-threshold" for="lit-ev-threshold">
+              <span>相对置信度 ≥ <b id="lit-ev-threshold-value">75%</b></span>
+              <input id="lit-ev-threshold" type="range" min="0" max="100" step="5" value="75"
+                     aria-label="相对置信度阈值">
+            </label>
+            <div id="lit-ev-list" class="lit-ev-list"></div>
+          </section>
           <div id="lit-qa-messages" class="sr-qa-messages"></div>
           <form id="lit-qa-form" class="sr-qa-form" autocomplete="off">
             <div id="lit-qa-selbar" class="sr-qa-selbar" hidden></div>
@@ -744,6 +854,25 @@
         </label>
       </div>
       <div id="lit-library-links" class="lit-library-links"></div>
+    </div>
+  </dialog>
+
+  <!-- 论文速览（对齐重设计预览的 .ov 版式）：元数据 + 研究速览 + 建议提问 + 页面 -->
+  <dialog id="lit-overview-dialog" aria-labelledby="lit-overview-title">
+    <div class="dialog-card lit-ov-card">
+      <div class="lit-ov-head">
+        <button class="icon-button lit-ov-close" type="button" data-lit-dialog-close aria-label="关闭">×</button>
+        <div class="lit-ov-thumb" id="lit-ov-thumb" aria-hidden="true"></div>
+        <div class="lit-ov-head-main">
+          <span class="lit-ov-kind" id="lit-ov-kind">文献</span>
+          <h2 class="lit-ov-title" id="lit-overview-title">论文速览</h2>
+          <p class="lit-ov-authors" id="lit-ov-authors"></p>
+          <dl class="lit-ov-fields" id="lit-ov-fields"></dl>
+          <div class="lit-ov-tags" id="lit-ov-tags"></div>
+        </div>
+      </div>
+      <div class="lit-ov-actions" id="lit-ov-actions"></div>
+      <div class="lit-ov-body" id="lit-ov-body"></div>
     </div>
   </dialog>
 
@@ -985,13 +1114,18 @@
                 <button class="settings-segmented-btn" type="button" data-glow-value="on" aria-pressed="false">开启</button>
               </div>
             </div>
-            <div class="settings-row">
-              <span class="settings-row-label">字体大小<small>只放大文字，布局不动</small></span>
-              <div class="settings-segmented" role="group" aria-label="字体大小">
-                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1" aria-pressed="true">标准</button>
-                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1.15" aria-pressed="false">大</button>
-                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1.3" aria-pressed="false">较大</button>
-                <button class="settings-segmented-btn" type="button" data-font-zoom-value="1.45" aria-pressed="false">特大</button>
+            <div class="settings-row settings-row-slider">
+              <span class="settings-row-label">界面大小<small>整体缩放：文字、间距、面板一起变，双击复位</small></span>
+              <div class="settings-slider">
+                <input id="settings-ui-scale-range" class="settings-range" type="range" data-ui-scale-range min="85" max="135" step="1" value="100" aria-label="界面大小" title="拖动调整整体缩放，双击复位为 100%">
+                <output class="settings-range-out" data-ui-scale-out for="settings-ui-scale-range">100%</output>
+              </div>
+            </div>
+            <div class="settings-row settings-row-slider">
+              <span class="settings-row-label">字体大小<small>只放大文字，布局不动，双击复位</small></span>
+              <div class="settings-slider">
+                <input id="settings-font-size-range" class="settings-range" type="range" data-font-size-range min="11" max="20" step="1" value="13" aria-label="字体大小" title="拖动调整文字大小，双击复位为 13 px">
+                <output class="settings-range-out" data-font-size-out for="settings-font-size-range">13 px</output>
               </div>
             </div>
           </div>
@@ -1340,24 +1474,28 @@
   <script src="/static/course-autocomplete.js?v=20260902-import-dialog" defer></script>
   <!-- 语义护照组件：必须排在 app.js 之前 —— 它是 IIFE，加载即挂 window.KBPassport，
        而 app.js 的图谱渲染会直接调它。 -->
-  <script src="/static/kb-passport-ui.js?v=20261006-passport-v8" defer></script>
-  <script src="/static/app.js?v=20261008-tree-flow-fold" defer></script>
+  <script src="/static/kb-passport-ui.js?v=20261010-ui-scale-v3" defer></script>
+  <script src="/static/app.js?v=20261010-ui-scale-v3" defer></script>
   <script src="/static/kb-flow-pulse.js?v=20261008-pulse-v3-meteor" defer></script>
   <script src="/static/kb-tree-flow.js?v=20261008-tree-flow-v2" defer></script>
   <!-- 神经图谱（沉浸式知识图谱）：必须排在 app.js 之后 —— classic script 共享全局词法环境，
        它直接读 app.js 的顶层 state，并复用 nodePalette / statusLabel / escapeHtml / kbOpenNode。
        入口按钮注入到 .graph-toolbar；删掉这一行即完全回退。 -->
-  <script src="/static/kb-neural-view.js?v=20261008-neural-v14" defer></script>
+  <script src="/static/kb-neural-view.js?v=20261010-neural-v18" defer></script>
     <!-- Agent 工作台外壳：必须排在 app.js 之后 —— 它要读写 app.js 的顶层 const state
          （classic script 共享全局词法环境），顺序反了拿不到 state -->
-    <script src="/static/agent-shell.js?v=20261007-study-doc-reader1" defer></script>
+    <script src="/static/agent-shell.js?v=20261010-ui-scale-v3" defer></script>
+    <!-- 全屏显示：在图标栏注入一个全屏按钮，一点把整个知源铺满电脑屏幕
+         （走浏览器 Fullscreen API，Esc 或再点一次还原）。复用 .agent-rail-btn
+         样式，零新 CSS，不改 app.js。删掉这一行即完全回退。 -->
+    <script src="/static/fullscreen-ui.js?v=20261011-fullscreen-v3" defer></script>
     <!-- 学习文档：把「一页速查表 + 学习路径 + 清单报告」三类成文产物合并成一份全屏
          沉浸式阅读台 —— 左目录（可拖宽）+ 正文（一个滚动条读到底）+ 右侧「问 AI」抽屉
          （选中原文可就地提问）+ 阅读进度 + 沉浸模式。入口是侧栏每个项目行右侧的小图标，
          由 agent-shell.js 渲染并转发到这里（window.KnowOriginStudyDoc）；
          样式自带，删掉这一行即完全回退。数据走 /study-kit、/study-kit/generate、
          /study-kit/ask 三个端点。 -->
-    <script src="/static/study-doc-ui.js?v=20261007-study-doc-reader1" defer></script>
+    <script src="/static/study-doc-ui.js?v=20261010-ui-scale-v3" defer></script>
   <!-- 读书：书架 / 跨书源搜索 / 读书收获 / 自动取正文 / 找文件链接。
        暴露 window.KnowOriginReading；数据走 /api/reading/* 端点。删掉这一行即完全回退。 -->
   <script src="/static/reading.js?v=20261007-reading11" defer></script>
@@ -1365,7 +1503,10 @@
        复用 styles-neural.css 的 .ko-nv-layer 材质；入口按钮注入 .rd-head。
        删掉这一行 + 上面 styles-reading-neural.css 那一行，即完全回退。 -->
   <script src="/static/rd-neural-view.js?v=20261008-rdneural-v1" defer></script>
-  <script src="/static/literature.js?v=20261001-aside-drag" defer></script>
+  <script src="/static/literature.js?v=20261011-cross-hl-v1" defer></script>
+  <!-- 文献精读 · 整页对照翻译：左原文页 / 右译文页，版式保真（走 pdf2zh）。
+       纯 DOM 挂接，不改 literature.js；删掉这一行即完全回退。 -->
+  <script src="/static/pdf-spread-ui.js?v=20261011-cross-hl-v1" defer></script>
   <!-- 论文全网搜索 & 期刊检索：在文献精读模式注入搜索入口 -->
   <script src="/static/paper-search-ui.js?v=20261001-aside-drag" defer></script>
   <script src="/static/journal-search-ui.js?v=20260925-journal-search" defer></script>
@@ -1381,7 +1522,7 @@
   <script src="/static/study-desk-ui.js?v=20260930-hxt-checklist-ask" defer></script>
   <!-- 海小棠桌宠：依赖登录会话与 app.js 广播的项目切换事件 -->
   <script src="/static/hxt-sprite.js?v=20260910-vec-v1" defer></script>
-  <script src="/static/hxt-pet.js?v=20261001-sound-coalesce" defer></script>
+  <script src="/static/hxt-pet.js?v=20261010-ui-scale-v3" defer></script>
   <!-- 海小棠回答「原文 URL 可点化」增强：从「校园速递」addon 抽离，独立保留，删掉即回到纯文本 -->
   <script src="/static/hxt-linkify.js?v=20260928-linkify-only" defer></script>
   <!-- 海小棠 · 校园速递：作为海小棠首屏快捷入口 + 弹窗面板恢复（不挂主界面标题栏） -->
@@ -1437,7 +1578,7 @@
   <!-- 知识点文档：速查表每行的「＋文档」与顶部的「一键生成整份文档」都落到这里 ——
        全屏阅读页（左目录 + 右正文）、下载 .md、批量逐个生成后本地合订。
        对外桥接点 window.KnowOriginKnowledgeDoc；样式自带，删掉这一行即完全回退。 -->
-  <script src="/static/knowledge-doc-ui.js?v=20261007-kd-pid1" defer></script>
+  <script src="/static/knowledge-doc-ui.js?v=20261010-kd-sync-v3" defer></script>
   <!-- 速查表：功能页签栏加一页「速查表」——列出全部知识点，每个知识点后面带
        「＋卡片」「＋测验」「＋文档」三个快捷按钮，复用按节点生成端点
        （/nodes/{id}/card、/nodes/{id}/quiz、/nodes/{id}/doc），

@@ -31,7 +31,7 @@
 /* —— 工作区骨架 —— */
 .literature-workspace {
   --sr-font-size: calc(15px * var(--font-scale, 1));
-  height: 100vh;
+  height: var(--vh);
   display: flex;
   flex-direction: column;
   padding: 14px;
@@ -1071,6 +1071,145 @@ button.sr-toc-item .sr-list-sub {
 .lit-item:hover .lit-item-delete { opacity: 0.5; }
 .lit-item-delete:hover { opacity: 1 !important; color: #d94436; background: rgba(217, 68, 54, 0.08); }
 
+/* —— 相关原文定位（提问 → 原文段落 + 相对置信度）——
+   住在 AI 问答面板的顶部：列表可滚、整块有高度上限，绝不能把下面的问答消息挤没。
+   黄色深浅用 --ev-a 从「面板底色」混到「金色」，深浅即本次提问内的相对名次；
+   深色主题下混的是 --gold-soft（暗金），所以两套主题都读得清，不需要各写一份。 */
+.lit-evidence {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  max-height: 46%;
+  border-bottom: 1px solid var(--line);
+  background: var(--sidebar);
+}
+.lit-evidence[hidden] { display: none; }
+.lit-ev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* 侧栏最窄只有 280px：标题 + 排序 + 清空一行放不下时必须整体换行，
+     不能让「排序」「清空」被逐字拆成两行。 */
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.lit-ev-title {
+  font-size: calc(12.5px * var(--font-scale, 1));
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.lit-ev-title b { color: var(--gold); font-variant-numeric: tabular-nums; }
+.lit-ev-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; white-space: nowrap; }
+.lit-ev-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--muted);
+}
+.lit-ev-sort select {
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: calc(11.5px * var(--font-scale, 1));
+}
+.lit-ev-clear {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 2px 8px;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.lit-ev-clear:hover { color: var(--green-dark); border-color: var(--green); }
+
+/* 阈值滑块：与结果列表同一套金色语义，拖到哪、列表就剩哪一批 */
+.lit-ev-threshold {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--muted);
+}
+.lit-ev-threshold span { display: flex; justify-content: space-between; }
+.lit-ev-threshold b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.lit-ev-threshold input[type="range"] {
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
+.lit-ev-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lit-ev-list > * { flex: 0 0 auto; }
+.lit-ev-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px 8px;
+  border: 1px solid color-mix(in srgb, var(--gold) 34%, var(--line));
+  border-left: 3px solid color-mix(in srgb, var(--gold) var(--ev-a, 20%), var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gold) var(--ev-a, 20%), var(--panel));
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.lit-ev-item:hover {
+  border-color: var(--gold);
+  box-shadow: 0 2px 10px rgba(212, 168, 67, 0.18);
+}
+.lit-ev-item.is-selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px var(--gold-soft);
+}
+.lit-ev-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: calc(11px * var(--font-scale, 1));
+}
+.lit-ev-conf { font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.lit-ev-page { color: var(--muted); flex: 0 0 auto; }
+.lit-ev-text {
+  font-size: calc(11.5px * var(--font-scale, 1));
+  line-height: 1.55;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lit-ev-hint {
+  margin: 2px 0;
+  padding: 6px 8px;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  line-height: 1.5;
+  color: var(--muted);
+}
+.lit-ev-hint-error { color: var(--red); }
+
 /* —— AI 问答 —— */
 .sr-qa-messages {
   flex: 1 1 auto;
@@ -1327,7 +1466,11 @@ mark.sr-aihl {
   font-size: var(--sr-font-size);
   scroll-behavior: smooth;
 }
-.sr-reader-body > * {
+/* 长文正文限宽 960（行宽过长不好读）。
+   ⚠️ 排除原页阅读器（.orig-reader）：它里面是 PDF 页图、不是正文行，960 的上限会把
+   页图钉死在 960px 居中 —— 放大后页图（960×zoom）超出 960 就被右缘裁掉，左右各留一大片
+   空白，也就是用户说的「放大文献会被红框裁剪 / 红框也要铺满」。页图要的是整宽。 */
+.sr-reader-body > *:not(.orig-reader) {
   max-width: 960px;
   margin-left: auto;
   margin-right: auto;
@@ -1503,7 +1646,7 @@ mark.sr-mark[data-auto="1"] { opacity: 0.85; }
   flex-direction: column;
   gap: 8px;
   min-width: 420px;
-  max-width: min(680px, calc(100vw - 16px));
+  max-width: min(680px, calc(var(--vw) - 16px));
   padding: 12px 30px 12px 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1661,7 +1804,7 @@ mark.sr-mark[data-auto="1"] { opacity: 0.85; }
 .sr-tip-note-actions .sr-note-save { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
 
 /* —— 元数据对话框 —— */
-.lit-meta-card { width: min(900px, 96vw); max-width: 100%; box-sizing: border-box; max-height: 92vh; display: flex; flex-direction: column; }
+.lit-meta-card { width: min(900px, calc(96 * var(--vwi))); max-width: 100%; box-sizing: border-box; max-height: calc(92 * var(--vhi)); display: flex; flex-direction: column; }
 .lit-meta-body { overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 14px; margin-top: 8px; font-size: calc(13px * var(--font-scale, 1)); }
 .lit-meta-empty { color: var(--muted); font-size: calc(13px * var(--font-scale, 1)); }
 .lit-meta-title { margin: 0; font-size: calc(19px * var(--font-scale, 1)); line-height: 1.3; color: var(--ink); }
@@ -1718,11 +1861,11 @@ mark.sr-mark[data-auto="1"] { opacity: 0.85; }
 #lit-paste-dialog,
 #lit-meta-dialog {
   width: fit-content;
-  max-width: calc(100vw - 40px);
+  max-width: calc(var(--vw) - 40px);
   overflow: hidden;
 }
 
-.lit-compare-card { width: min(1200px, 98vw); max-width: 100%; box-sizing: border-box; max-height: 92vh; display: flex; flex-direction: column; }
+.lit-compare-card { width: min(1200px, calc(98 * var(--vwi))); max-width: 100%; box-sizing: border-box; max-height: calc(92 * var(--vhi)); display: flex; flex-direction: column; }
 .lit-compare-body { overflow: auto; margin-top: 8px; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; }
 /* 只让 .lit-compare-body 承担滚动，别让 flex 去压扁子块。
    表格容器自带 overflow，flex-shrink 默认为 1 —— 空间不够时它会把表格挤成一条缝
@@ -1874,7 +2017,7 @@ mark.sr-mark[data-auto="1"] { opacity: 0.85; }
   max-width: 100%; box-sizing: border-box; overflow-x: auto;
 }
 .lit-paste-card textarea { resize: vertical; }
-.lit-paste-card { width: min(680px, 94vw); max-width: 100%; box-sizing: border-box; max-height: 88vh; display: flex; flex-direction: column; }
+.lit-paste-card { width: min(680px, calc(94 * var(--vwi))); max-width: 100%; box-sizing: border-box; max-height: calc(88 * var(--vhi)); display: flex; flex-direction: column; }
 .lit-paste-card .dialog-note { margin-top: 8px; }
 
 .lit-error { color: var(--red); font-size: calc(13px * var(--font-scale, 1)); }
@@ -2160,6 +2303,749 @@ html[data-theme="dark"] {
 html[data-theme="dark"] .sr-msg.sr-msg-user .sr-msg-bubble { color: #0e1410; }
 html[data-theme="dark"] .sr-note-save { color: #0e1410; }
 
+/* ==========================================================================
+   文献库视图（重设计）：全屏工作台 —— 左栏筛选/排序 + 右栏卡片列表
+   版式严格对齐 _literature_redesign_preview.html 的 .lib / .rail / .paper 规格。
+   筛选/排序/统计全部由知源自有字段推导，不新增数据。
+   切换入口是 .sr-layout.is-library（由 literature.js 的 showLibraryPanel 挂上）。
+   刻意不改 #lit-library-panel 内部被外部模块依赖的选择器：
+   .lit-library-actions / .lit-library-filters / #lit-list / #lit-synthesis-bar
+   ========================================================================== */
+
+/* —— 库视图打开：收起精读栏与拖拽分隔条，让左栏（.sr-aside）撑满工作区 —— */
+.sr-layout.is-library .sr-aside { flex: 1 1 auto; }
+.sr-layout.is-library .sr-reader { display: none; }
+.sr-layout.is-library .sr-aside-resizer { display: none; }
+/* 侧栏已经满宽，「加宽侧栏」按钮在此场景下无意义，隐藏以免误导 */
+#lit-library-panel .lit-aside-expand-btn { display: none; }
+
+#lit-library-panel.sr-library { padding: 0; }
+
+/* paper-search-ui 把 .lit-library-actions 钉成 grid(!important)；它现在只是 #ps-container
+   的注入锚点（内容只剩隐藏的 file input），压成不占位。 */
+#literature-workspace #lit-library-panel .lit-library-actions { display: none !important; }
+
+/* 顶部导航（paper-search-ui 注入的「我的文献 / 全球检索」） */
+#lit-library-panel > .lit-lib-header-nav {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 13px 22px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* —— 两栏骨架：216px 左栏 + 自适应右栏 ——
+   grid-template-rows 必须写 minmax(0,1fr)：默认 auto 行按内容撑高，
+   .lit-lib-main 于是比容器还高，列表拿不到可滚高度 —— 表现是「只能滚一小段」
+   或干脆滚不动、多出的部分被 #lit-library-panel 的 overflow:hidden 裁掉。 */
+.lit-lib-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+/* —— 左栏 —— */
+.lit-rail {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px 22px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lit-rail .lit-library-filters { margin: 0; }
+.lit-rail-search { position: relative; }
+.lit-rail-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.lit-rail-search input {
+  width: 100%;
+  padding: 9px 12px 9px 32px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: calc(12.5px * var(--font-scale, 1));
+}
+.lit-rail-search input::placeholder { color: var(--muted); }
+.lit-rail-search input:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(var(--green-rgb), 0.14);
+}
+
+.lit-rail-group { display: flex; flex-direction: column; }
+.lit-rail-group h4 {
+  margin: 0 0 7px;
+  font-size: calc(10px * var(--font-scale, 1));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+}
+.lit-rail-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.lit-rail-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  line-height: 1.5;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+.lit-rail-chip:hover { border-color: var(--muted); color: var(--ink); }
+.lit-rail-chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--background);
+}
+
+.lit-rail-hr { height: 1px; background: var(--line); margin: 2px 0; }
+
+.lit-rail-list { display: flex; flex-direction: column; gap: 2px; }
+.lit-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: calc(12.5px * var(--font-scale, 1));
+  text-align: left;
+  transition: background 150ms ease, color 150ms ease;
+}
+.lit-rail-item:hover { background: var(--panel); color: var(--ink); }
+.lit-rail-item.is-on { background: var(--green-soft); color: var(--green-dark); font-weight: 600; }
+.lit-rail-item .n {
+  margin-left: auto;
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--muted);
+  font-weight: 600;
+}
+.lit-rail-item svg { width: 14px; height: 14px; flex: none; }
+.lit-rail-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lit-rail-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--green); }
+.lit-rail-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--font-scale, 1));
+  line-height: 1.6;
+}
+.lit-rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
+.lit-rail-import { width: 100%; justify-content: center; }
+.lit-rail-foot .lit-rail-item:disabled { opacity: 0.45; cursor: default; }
+.lit-rail-foot .lit-rail-item:disabled:hover { background: transparent; color: var(--ink-2); }
+
+/* —— 右栏 —— */
+.lit-lib-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 20px 0;
+}
+.lit-lib-head { flex: 0 0 auto; }
+.lit-lib-head h1 {
+  margin: 0;
+  font-size: calc(19px * var(--font-scale, 1));
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.lit-lib-hint {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--font-scale, 1));
+}
+.lit-lib-count { color: var(--muted); }
+
+.lit-lib-stats {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.lit-stat { display: flex; flex-direction: column; gap: 0; }
+.lit-stat b {
+  display: block;
+  font-size: calc(16px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.lit-stat span { font-size: calc(11px * var(--font-scale, 1)); color: var(--muted); }
+
+.lit-lib-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  margin: 10px 0 0;
+  border-bottom: 1px solid var(--line);
+}
+.lit-lib-tabs button {
+  padding: 7px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--font-scale, 1));
+  font-weight: 600;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.lit-lib-tabs button:hover { color: var(--ink); }
+.lit-lib-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--green); }
+.lit-lib-tabs .n { margin-left: 4px; font-size: calc(10.5px * var(--font-scale, 1)); color: var(--muted); }
+
+.lit-lib-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 8px;
+}
+.lit-lib-sort { font-size: calc(11.5px * var(--font-scale, 1)); color: var(--muted); }
+.lit-lib-sort b { color: var(--ink-2); font-weight: 600; }
+.lit-lib-toolbar .lit-compare-bar { margin-left: auto; }
+
+.lit-lib-main .lit-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 2px 30px;
+}
+
+/* —— 卡片（对齐 .paper 的 grid：勾选 | 缩略图 | 正文 | 操作） —— */
+.lit-item {
+  display: grid;
+  grid-template-columns: auto 56px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 2px 10px rgba(76, 65, 50, 0.06);
+  position: relative;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+.lit-item:hover { border-color: var(--muted); transform: translateY(-1px); }
+.lit-item.active {
+  border-color: var(--green);
+  background: var(--green-soft);
+  box-shadow: 0 0 0 3px rgba(var(--green-rgb), 0.10);
+}
+html[data-theme="dark"] .lit-item { box-shadow: none; }
+
+.lit-item-thumb {
+  width: 56px;
+  height: 74px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: linear-gradient(160deg, var(--panel), var(--sidebar));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+.lit-item-thumb svg { width: 17px; height: 17px; }
+.lit-item-thumb-cap {
+  max-width: 46px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(9.5px * var(--font-scale, 1));
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.lit-item-main { gap: 3px; }
+.lit-item-title { font-size: calc(13.5px * var(--font-scale, 1)); font-weight: 650; }
+.lit-item-sub { font-size: calc(11.5px * var(--font-scale, 1)); }
+.lit-item-tags { margin-top: 5px; gap: 5px; }
+.lit-item-tags .lit-tag {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  background: var(--sidebar);
+  color: var(--muted);
+  font-size: calc(10.5px * var(--font-scale, 1));
+  font-weight: 500;
+}
+.lit-item-badges { gap: 4px; margin-top: 2px; }
+.lit-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: calc(9.5px * var(--font-scale, 1));
+  font-weight: 700;
+  line-height: 1.5;
+}
+.lit-badge.is-reading { background: var(--gold-soft); border-color: transparent; color: var(--ink); }
+.lit-badge.is-done,
+.lit-badge.is-ready { background: var(--green-soft); border-color: transparent; color: var(--green-dark); }
+.lit-item-progress {
+  display: block;
+  height: 3px;
+  max-width: 200px;
+  margin-top: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.lit-item-progress i { display: block; height: 100%; background: var(--green); }
+
+.lit-item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: stretch;
+  min-width: 92px;
+}
+.lit-item-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: calc(11.5px * var(--font-scale, 1));
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.lit-item-btn:hover { border-color: var(--muted); color: var(--ink); }
+.lit-item-btn.is-primary { background: var(--green-dark); border-color: var(--green-dark); color: #fff; }
+.lit-item-btn.is-primary:hover { background: var(--green); border-color: var(--green); }
+.lit-item-delete { position: absolute; top: 8px; right: 8px; }
+
+/* —— 全球检索模式：左右两栏让位给 #ps-container —— */
+#lit-library-panel[data-active-view="search"] .lit-rail,
+#lit-library-panel[data-active-view="search"] .lit-lib-head,
+#lit-library-panel[data-active-view="search"] .lit-lib-stats,
+#lit-library-panel[data-active-view="search"] .lit-lib-tabs,
+#lit-library-panel[data-active-view="search"] .lit-lib-toolbar { display: none !important; }
+#lit-library-panel[data-active-view="search"] .lit-lib-body { grid-template-columns: minmax(0, 1fr); }
+
+/* —— 侧栏态（.sr-layout 没有 is-library）：概念图谱打开时，库面板退回 .sr-aside 的宽度 ——
+   只留「对比栏 + 列表」；左栏筛选、统计、页签在 320px 里放不下，全部收起；
+   卡片压成「勾选 + 标题」两列，缩略图与操作按钮让位。 */
+.sr-layout:not(.is-library) .lit-rail,
+.sr-layout:not(.is-library) .lit-lib-head,
+.sr-layout:not(.is-library) .lit-lib-stats,
+.sr-layout:not(.is-library) .lit-lib-tabs,
+.sr-layout:not(.is-library) .lit-lib-sort { display: none; }
+.sr-layout:not(.is-library) .lit-lib-body { grid-template-columns: minmax(0, 1fr); }
+.sr-layout:not(.is-library) .lit-lib-main { padding: 10px 10px 0; }
+.sr-layout:not(.is-library) .lit-lib-toolbar { margin: 0 0 8px; }
+.sr-layout:not(.is-library) .lit-item {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 10px;
+}
+.sr-layout:not(.is-library) .lit-item-thumb,
+.sr-layout:not(.is-library) .lit-item-actions { display: none; }
+
+/* ==========================================================================
+   精读视图：切换入口更显眼 + 阅读助手可收起 + 原页/译文缩放
+   ========================================================================== */
+
+/* —— 顶栏「文献库 / 返回精读」：从普通次级按钮提升为主色实心胶囊，位置也更靠前 —— */
+.lit-nav-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 1px solid var(--green-dark);
+  border-radius: 999px;
+  background: var(--green-dark);
+  color: #fff;
+  font-size: calc(12.5px * var(--font-scale, 1));
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(var(--green-dark-rgb), 0.28);
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.lit-nav-toggle:hover { background: var(--green); border-color: var(--green); transform: translateY(-1px); }
+.lit-nav-toggle[aria-pressed="true"] {
+  background: var(--panel);
+  border-color: var(--green-dark);
+  color: var(--green-dark);
+  box-shadow: none;
+}
+.lit-nav-toggle .tb-ic { display: inline-flex; }
+.lit-nav-toggle .tb-ic svg { width: 15px; height: 15px; }
+.lit-nav-toggle-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+  color: inherit;
+  font-size: calc(10.5px * var(--font-scale, 1));
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+}
+.lit-nav-toggle[aria-pressed="true"] .lit-nav-toggle-badge { background: var(--green-soft); }
+
+/* —— 阅读助手收起 / 展开：整页对照看不清时收起它，正文一次宽出一整栏 —— */
+.sr-aside { position: relative; }
+.lit-aside-collapse {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 25;
+  width: 18px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  background: var(--panel);
+  color: var(--muted);
+  transition: background 150ms ease, color 150ms ease;
+}
+.lit-aside-collapse svg { width: 13px; height: 13px; }
+.lit-aside-collapse:hover { background: var(--green-soft); color: var(--green-dark); }
+.lit-aside-collapse[aria-pressed="true"] svg { transform: rotate(180deg); }
+/* 库视图下侧栏就是整块工作区，收起它没有意义。
+   第二种形态（概念图谱并排时库面板退回 320px 侧栏）同样如此：库面板本身就在 aside 里，
+   一旦收起就把整个文献库藏没了 —— 用 :has() 覆盖两种形态。 */
+.sr-layout.is-library .lit-aside-collapse,
+.sr-aside:has(> #lit-library-panel:not(.hidden)) .lit-aside-collapse { display: none; }
+.sr-layout.is-aside-collapsed .sr-aside {
+  flex: 0 0 22px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.sr-layout.is-aside-collapsed .sr-aside > *:not(.lit-aside-collapse) { display: none; }
+.sr-layout.is-aside-collapsed .sr-aside-resizer { display: none; }
+
+/* —— 原页 / 译文页缩放（一个缩放同时管左右两栏，见 applyOrigZoom） —— */
+.orig-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.orig-zoom-btn { padding: 4px 9px; line-height: 1; }
+.orig-zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* 抓手模式开关：只有一个手形图标（文案在 title/aria-label 里），开着时高亮 */
+.orig-grab-btn {
+  padding: 4px 7px;
+  line-height: 1;
+  margin-left: 2px;
+  display: inline-flex;
+  align-items: center;
+}
+.orig-grab-btn svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+  /* 图标本身不吃指针事件，否则拖拽起手点在 svg 上会被 target 判成按钮 */
+  pointer-events: none;
+}
+.orig-grab-btn.is-on {
+  background: var(--accent, #4a7);
+  border-color: var(--accent, #4a7);
+  color: #fff;
+}
+/* 抓手模式：页图与各覆盖层统一 grab 光标；拖拽时切 grabbing。
+   类名打在滚动容器 .orig-pan-canvas 上（它才是拖拽的宿主），
+   覆盖层（文字/热区）默认有自己的 cursor，必须一并覆盖，
+   否则鼠标落在字上又变回文本光标。
+   同时保留 .orig-stage.is-grab 一份——DOM 结构回退时不至于丢光标。 */
+.orig-pan-canvas.is-grab .orig-stage,
+.orig-stage.is-grab,
+.orig-pan-canvas.is-grab .orig-page-wrap,
+.orig-stage.is-grab .orig-page-wrap,
+.orig-pan-canvas.is-grab .orig-page-img,
+.orig-stage.is-grab .orig-page-img,
+.orig-pan-canvas.is-grab .orig-formula-img,
+.orig-stage.is-grab .orig-formula-img,
+.orig-pan-canvas.is-grab .orig-text-layer,
+.orig-stage.is-grab .orig-text-layer,
+.orig-pan-canvas.is-grab .orig-hl-layer,
+.orig-stage.is-grab .orig-hl-layer,
+.orig-pan-canvas.is-grab .orig-fig-layer,
+.orig-stage.is-grab .orig-fig-layer,
+.orig-pan-canvas.is-grab .orig-fig-hit,
+.orig-stage.is-grab .orig-fig-hit { cursor: grab; }
+/* 抓手模式下不划词、不选字 */
+.orig-pan-canvas.is-grab .orig-text-layer,
+.orig-stage.is-grab .orig-text-layer { user-select: none; -webkit-user-select: none; }
+.orig-pan-canvas.is-panning,
+.orig-stage.is-panning,
+.orig-pan-canvas.is-panning .orig-page-wrap,
+.orig-stage.is-panning .orig-page-wrap,
+.orig-pan-canvas.is-panning .orig-page-img,
+.orig-stage.is-panning .orig-page-img,
+.orig-pan-canvas.is-panning .orig-text-layer,
+.orig-stage.is-panning .orig-text-layer,
+.orig-pan-canvas.is-panning .orig-fig-layer,
+.orig-stage.is-panning .orig-fig-layer,
+.orig-pan-canvas.is-panning .orig-fig-hit,
+.orig-stage.is-panning .orig-fig-hit { cursor: grabbing; }
+
+/* ==========================================================================
+   论文速览弹窗（对齐预览的 .ov 版式）
+   ========================================================================== */
+/* 宽度必须写在 <dialog> 自身：写在内层卡片上时，卡片的 max-width:100% 会和
+   dialog 的 fit-content 互相依赖成环，实测宽度塌到 480px（标题被挤成 4 行）。
+   与 #lit-compare-dialog / #lit-meta-dialog 的既有写法保持一致。 */
+#lit-overview-dialog {
+  width: min(1000px, calc(var(--vw) - 40px));
+  max-width: calc(var(--vw) - 40px);
+  max-height: calc(var(--vh) - 40px);
+  overflow: hidden;
+}
+.lit-ov-card {
+  width: 100%;
+  max-height: calc(var(--vh) - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.lit-ov-head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px 20px;
+  position: relative;
+}
+.lit-ov-close { position: absolute; top: 12px; right: 12px; }
+.lit-ov-thumb {
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: linear-gradient(160deg, var(--panel), var(--sidebar));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.lit-ov-thumb svg { width: 30px; height: 30px; }
+.lit-ov-thumb-cap { font-size: calc(11px * var(--font-scale, 1)); }
+.lit-ov-kind {
+  align-self: flex-start;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-size: calc(10.5px * var(--font-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.lit-ov-title {
+  margin: 9px 0 7px;
+  font-size: calc(18px * var(--font-scale, 1));
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.015em;
+}
+.lit-ov-authors {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.65;
+}
+.lit-ov-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: 8px 16px;
+  margin: 0 0 10px;
+}
+.lit-ov-field dt {
+  margin-bottom: 1px;
+  font-size: calc(10px * var(--font-scale, 1));
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.lit-ov-field dd {
+  margin: 0;
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: calc(12px * var(--font-scale, 1));
+}
+.lit-ov-field dd.is-missing { color: var(--muted); font-weight: 400; }
+.lit-ov-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.lit-ov-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.lit-ov-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.lit-ov-btn:hover { border-color: var(--muted); color: var(--ink); }
+.lit-ov-btn.is-primary { background: var(--green-dark); border-color: var(--green-dark); color: #fff; }
+.lit-ov-btn.is-primary:hover { background: var(--green); border-color: var(--green); }
+
+/* 只让 .lit-ov-body 承担滚动（flex:1 1 auto + min-height:0 是必须的，
+   否则 flex 子项不会收缩，内容会被卡片裁掉、滚不到底）。 */
+.lit-ov-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.lit-ov-section { padding: 16px 20px; }
+.lit-ov-section + .lit-ov-section { border-top: 1px solid var(--line); }
+.lit-ov-sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.lit-ov-sec-head h2 { margin: 0; font-size: calc(14px * var(--font-scale, 1)); font-weight: 700; }
+.lit-ov-sec-head .sub { font-size: calc(11px * var(--font-scale, 1)); color: var(--muted); }
+.lit-ov-gen-btn {
+  margin-left: auto;
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: calc(11.5px * var(--font-scale, 1));
+  font-weight: 600;
+}
+.lit-ov-gen-btn:hover { border-color: var(--green); color: var(--green-dark); }
+.lit-ov-gen-btn:disabled { opacity: 0.6; cursor: default; }
+
+.lit-ov-insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lit-ov-insight {
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.lit-ov-insight h3 {
+  margin: 0 0 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--green-dark);
+}
+.lit-ov-insight h3 .idx {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  display: grid;
+  place-items: center;
+  font-size: calc(9.5px * var(--font-scale, 1));
+}
+.lit-ov-insight p {
+  margin: 0;
+  font-size: calc(12.5px * var(--font-scale, 1));
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.lit-ov-insight .src { margin-top: 6px; font-size: calc(10.5px * var(--font-scale, 1)); color: var(--muted); }
+.lit-ov-empty {
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  text-align: center;
+}
+.lit-ov-empty p { margin: 0; color: var(--muted); font-size: calc(12px * var(--font-scale, 1)); }
+.lit-ov-empty-text { margin: 0; color: var(--muted); font-size: calc(12px * var(--font-scale, 1)); }
+.lit-ov-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lit-ov-chip {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: calc(12px * var(--font-scale, 1));
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.lit-ov-chip:hover { border-color: var(--green); color: var(--green-dark); background: var(--green-soft); }
+.lit-ov-thumbstrip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.lit-ov-page {
+  flex: none;
+  width: 62px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+.lit-ov-page img {
+  width: 100%;
+  height: 78px;
+  object-fit: cover;
+  display: block;
+  background: var(--sidebar);
+}
+.lit-ov-page span { padding: 2px 0; text-align: center; font-size: calc(9.5px * var(--font-scale, 1)); color: var(--muted); }
+.lit-ov-page:hover { border-color: var(--green); }
+.lit-ov-foot {
+  padding: 11px 20px;
+  background: var(--sidebar);
+  border-top: 1px solid var(--line);
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+@media (max-width: 1080px) {
+  .lit-lib-body { grid-template-columns: 204px minmax(0, 1fr); }
+  .lit-rail { padding: 14px 12px 28px; }
+  .lit-lib-main { padding: 18px 18px 0; }
+  .lit-lib-stats { gap: 16px; }
+}
+@media (max-width: 900px) {
+  .lit-lib-body { grid-template-columns: minmax(0, 1fr); }
+  .lit-rail { display: none; }
+  .lit-ov-head { grid-template-columns: 1fr; }
+  .lit-ov-thumb { display: none; }
+  .lit-ov-insight-grid { grid-template-columns: 1fr; }
+}
+
 /* 深色主题：文献信息字段标签提亮，避免文字辨认不清 */
 html[data-theme="dark"] .lit-meta-row dt,
 html[data-theme="dark"] .lit-meta-block h4 { color: #b4bcb0; }
@@ -2395,15 +3281,33 @@ body.is-trans-resizing .orig-trans-resizer::after { background: var(--gold); }
   opacity: 0.4;
   cursor: not-allowed;
 }
-.orig-stage {
-  position: relative;
+/* 左右联动画布：原页 stage 与译文栏（.pdf-spread-pane）都是它的直接子项。
+   滚动条只在这一层，两栏共用同一个 scrollLeft/scrollTop —— 拖任意一边两边一起走。
+   （原来两栏各自 overflow:auto，各滚各的：放大后左边拖到第 5 段、右边还在第 1 段。） */
+.orig-pan-canvas {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+/* 原页车道：宽度显式写成 --orig-lane-w（设计像素，由 applyOrigZoom 按
+   「可视宽 × zoom」算好后写入），而不是 width:max-content ——
+   里面的 .orig-page-wrap 用百分比宽度，和 max-content 互为依赖会成环。
+   这样 canvas.scrollWidth = 原文车道宽 + 译文栏宽，横向真的能滚。 */
+.orig-stage {
+  position: relative;
+  flex: 0 0 var(--orig-lane-w, auto);
+  width: var(--orig-lane-w, auto);
+  min-height: 0;
+  overflow: visible;
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
   padding: 8px 12px;
+  box-sizing: border-box;
 }
 /* 原页高亮层：内联 <mark> 包裹所选区间，多次高亮叠加重叠处变深 */
 .orig-hl-layer {
@@ -2433,6 +3337,27 @@ body.is-trans-resizing .orig-trans-resizer::after { background: var(--gold); }
 }
 .orig-hl-line.auto mark.orig-tl-hl.auto {
   background: rgba(88, 214, 141, 0.38) !important;
+}
+/* 跨栏联动高亮：在**对面**栏划词时，本页对应行贴的色块（看起来就像两边同时被选中）。
+   只贴块、不放字，所以不需要字号贴合那一套。
+   ⚠️ 颜色必须照抄 styles-immersive.css 那条全局 ::selection：
+   `html:not([data-theme="dark"]) ::selection` 的 specificity 是 0,2,0，
+   压过了 .orig-tl-line::selection（0,1,0）—— 实际底色是品牌色淡染，那条绿底没生效。
+   联动色块必须跟实际底色一致，否则「一边蓝一边绿」。 */
+.orig-link-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+.orig-link-box {
+  position: absolute;
+  border-radius: 2px;
+  background: rgba(var(--green-rgb, 107, 158, 92), 0.22);
+}
+html[data-theme="dark"] .orig-link-box {
+  background: rgba(var(--green-rgb, 124, 185, 107), 0.3);
 }
 /* 热区层（图/表 + 公式）：透明可悬浮，触发整块高亮 + AI 解释 */
 .orig-fig-layer {
@@ -2599,8 +3524,8 @@ body.is-trans-resizing .orig-trans-resizer::after { background: var(--gold); }
 .orig-hover-pop {
   position: absolute;
   display: none;
-  width: min(560px, 94vw);
-  max-height: 68vh;
+  width: min(560px, calc(94 * var(--vwi)));
+  max-height: calc(68 * var(--vhi));
   overflow: auto;
   background: linear-gradient(180deg, var(--panel), var(--sidebar));
   border: 1px solid var(--line);
@@ -2683,6 +3608,42 @@ body.is-trans-resizing .orig-trans-resizer::after { background: var(--gold); }
   transition: background 140ms ease, color 140ms ease;
 }
 .orig-hover-close:hover { background: var(--red, #c0392b); color: #fff; }
+
+/* 全屏 / 收回：头部右侧的小按钮（JS 由 [data-ohfull] / [data-ohdock] 委托切换） */
+.orig-hover-pop-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2, var(--ink));
+  font-size: calc(11.5px * var(--font-scale, 1));
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+.orig-hover-pop-btn:hover { border-color: var(--green); color: var(--green-dark); }
+.orig-hover-pop-btn[hidden] { display: none; }
+
+/* ==========================================================================
+   解释面板「全屏」
+   --------------------------------------------------------------------------
+   面板原本是 .orig-text-layer 里的 absolute 子项，上下两层 overflow:hidden
+   （.orig-body / .sr-reader-body）会把它横竖都裁掉 —— 所以「全屏」不能只调
+   z-index（overflow 裁剪与 z-index 无关），得把节点挪出裁剪链：
+   JS 在 setPopFull(true) 里把 pop appendChild 到 <body> 并加 .is-full，
+   坐标随之从「wrap 内设计像素」换成视口像素（fixed），收回时原样还原。
+   尺寸照旧不写死，width/max-height 仍走 --vwi / --vhi 令牌（见 .orig-hover-pop）。
+   ========================================================================== */
+.orig-hover-pop.is-full {
+  position: fixed;
+  right: auto;
+  z-index: 9999;
+  width: min(880px, calc(92 * var(--vwi)));
+  max-height: calc(92 * var(--vhi));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+}
 .orig-hover-pop-body { padding: 12px 16px 16px; }
 .orig-hover-pop-body > :first-child { margin-top: 0; }
 .orig-hover-pop-body > :last-child { margin-bottom: 0; }
@@ -2845,6 +3806,11 @@ html[data-theme="dark"] .orig-hover-pop { box-shadow: 0 18px 50px rgba(0, 0, 0, 
   border-radius: 2px;
   align-self: flex-start;
   min-width: 0;
+  /* 宽度由 JS 写死的 --orig-lane-w 决定（见 .orig-stage）：
+     100% 填满车道，页图再按自身比例撑高。放大只改 --orig-lane-w，
+     这里不再自己乘 zoom，免得两份缩放叠乘。 */
+  width: 100%;
+  flex: 0 0 auto;
 }
 .orig-page-img {
   width: 100%;

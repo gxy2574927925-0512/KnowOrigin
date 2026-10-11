@@ -201,8 +201,9 @@ def _vision_setting(local_config: dict[str, Any], key: str, fallback: str) -> st
     return fallback
 
 
-def _resolve_mineru_enabled(value: Any, cli: Any) -> bool:
-    """解析 MinerU 开关：显式 true/false 直接生效；未配置（默认 "auto"）时按 CLI 是否可用自动启用。"""
+def _resolve_cli_enabled(value: Any, cli: Any) -> bool:
+    """解析外部 CLI 开关（MinerU / pdf2zh 共用）：显式 true/false 直接生效；
+    未配置（默认 "auto"）时按 CLI 是否可用自动启用。"""
     if isinstance(value, str) and value.strip().lower() == "auto":
         import shutil
 
@@ -233,6 +234,12 @@ class Settings:
     mineru_cli: str = "mineru"
     mineru_timeout_seconds: float = 600.0
     mineru_skip_text_pdf: bool = True
+    # ---- 版式保真 PDF 全文翻译（外部工具 pdf2zh / BabelDOC）----
+    # 和 MinerU 一样是可选外部 CLI：默认 auto（PATH 里有就用），没装就整项不可用。
+    pdf2zh_enabled: bool = False
+    pdf2zh_cli: str = "pdf2zh_next"
+    pdf2zh_timeout_seconds: float = 3600.0
+    pdf2zh_service: str = "openai"
     scanned_pdf_backend: str = "fast"
     tesseract_cmd: str = ""
     tesseract_lang: str = "chi_sim"
@@ -369,7 +376,7 @@ def load_settings() -> Settings:
             "KNOWORIGIN_LIBRARY_LINKS", os.getenv("KNOWORIGIN_LIBRARY_LINKS", "")
         ).strip()
         or DEFAULT_LIBRARY_LINKS,
-        mineru_enabled=_resolve_mineru_enabled(
+        mineru_enabled=_resolve_cli_enabled(
             os.getenv("MINERU_ENABLED", local_config.get("mineru_enabled", "auto")),
             os.getenv("MINERU_CLI", str(local_config.get("mineru_cli", "mineru"))),
         ),
@@ -398,6 +405,25 @@ def load_settings() -> Settings:
                 local_config.get("mineru_skip_text_pdf", "true"),
             )
         ),
+        pdf2zh_enabled=_resolve_cli_enabled(
+            os.getenv("PDF2ZH_ENABLED", local_config.get("pdf2zh_enabled", "auto")),
+            os.getenv("PDF2ZH_CLI", str(local_config.get("pdf2zh_cli", "pdf2zh_next"))),
+        ),
+        pdf2zh_cli=os.getenv(
+            "PDF2ZH_CLI", str(local_config.get("pdf2zh_cli", "pdf2zh_next"))
+        ).strip()
+        or "pdf2zh_next",
+        pdf2zh_timeout_seconds=_as_positive_float(
+            os.getenv(
+                "PDF2ZH_TIMEOUT_SECONDS",
+                local_config.get("pdf2zh_timeout_seconds", "3600"),
+            ),
+            3600.0,
+        ),
+        pdf2zh_service=os.getenv(
+            "PDF2ZH_SERVICE", str(local_config.get("pdf2zh_service", "openai"))
+        ).strip()
+        or "openai",
         scanned_pdf_backend=_normalized_scanned_pdf_backend(
             os.getenv(
                 "SCANNED_PDF_BACKEND",

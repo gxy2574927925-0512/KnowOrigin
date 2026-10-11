@@ -20,6 +20,7 @@
   const ASIDE_KEY = "knoworigin-lit-aside-w";
   const TRAN_KEY = "knoworigin-lit-trans-w";
   const AIHL_KEY = "knoworigin-lit-aihl:";   // AI 解释/问答 内容里的划词高亮（按文档粒度）
+  const ASIDE_COLLAPSE_KEY = "knoworigin.litAsideCollapsed"; // 阅读助手侧栏是否收起
   const AIHL_COLOR = "rgba(76,175,80,0.32)";
   const KP_KEY = "knoworigin-lit-keypoints:"; // 用户对阅读重点的本地增删改（aiOverrides + added）
   // 标注写远程前的防抖窗口：本地先落盘、界面立刻可见，稍后再同步到服务器
@@ -35,6 +36,12 @@
     // 只存段落原文，不存译文 —— 译文仍旧只有 translationMap 一份，不重复占内存。
     autoTranslated: new Set(),
     search: "",
+    // 文献库左栏筛选 / 排序（全部为本地过滤，不发请求）。取值域见 LIT_FILTER_DEFAULTS。
+    filterStatus: "all",   // all | unread | reading | done
+    filterMeta: "all",     // all | ready | pending
+    sortKey: "imported",   // imported | opened | readtime | year
+    ovId: null,            // 「论文速览」弹窗当前展示的文献 id
+    asideCollapsed: false, // 阅读助手侧栏是否收起（整页对照看不清时用）
     compareIds: new Set(),
     noteTimer: null,
     autoTrans: false,
@@ -44,6 +51,20 @@
     qaBusy: false,
     qaSelection: null, // 兼容旧引用，已改用 qaSelections 数组
     qaSelections: [], // [{id, kind:"text"|"fig"|"formula", label, text}] 原页选中的提问上下文（可多个）
+    // —— 相关原文定位（提问/关键词 → 原文段落 + 相对置信度）——
+    // evUnits 是后端按原文顺序返回的完整候选（含 0 分段），筛选与排序都在前端做，
+    // 所以拖阈值滑块不用重新调模型。
+    evQuery: "",        // 当前这列结果对应的问题；换问题前到的旧响应据此丢弃
+    evUnits: [],
+    evBusy: false,
+    evSelected: null,   // 当前定位到的那一条（列表高亮用）
+    evElapsed: 0,       // 后端打分耗时（毫秒），显示成「定位 3.4 秒」
+    evReason: "",       // "" | "scanned" | "no_text" | "error"
+    evError: "",
+    evSort: "document", // document | relevance
+    evThreshold: 75,    // 相对置信度阈值（%）
+    evShown: 60,        // 列表最多渲染几条
+    evAutoJumped: "",   // 已自动跳过的问题，避免同一次提问重复抢视图
     insights: null, // { suggested_questions, keypoints }
     kpEditing: null, // { mode:"add"|"edit", id, heading, summary, quote } 阅读重点编辑器状态
     activeTab: "qa",
@@ -57,6 +78,7 @@
     originalMeta: null,   // { n, is_scanned, pages:[{page,w,h,formula_regions}] }
     originalPage: 0,
     originalZoom: 1,
+    originalGrab: false,  // 抓手模式：左键拖拽平移原页（划词框选让位），放大后方便看内容
     originalHl: [],       // [{id, page, line, text}]
     // —— 文献标注：服务器为准、localStorage 兜底（跟着账号走，换设备能看见）——
     markHl: [],                              // 原页/文理高亮
@@ -196,6 +218,15 @@
     store.insights = null;
     store.kpEditing = null;
     store.autoHighlights = [];
+    // 相关原文定位也是「这篇文献的运行时状态」，切文献/退出必须清干净
+    store.evQuery = "";
+    store.evUnits = [];
+    store.evSelected = null;
+    store.evBusy = false;
+    store.evReason = "";
+    store.evError = "";
+    store.evElapsed = 0;
+    store.evAutoJumped = "";
     store.originalMeta = null;
     store.originalPage = 0;
     store.originalZoom = 1;
@@ -203,6 +234,10 @@
     store.compareIds = new Set();
     store.pendingDeleteId = null;
     store.search = "";
+    store.filterStatus = "all";
+    store.filterMeta = "all";
+    store.sortKey = "imported";
+    store.ovId = null;
     store.readingSeconds = 0;
     store.autoTrans = false;
     store.highlightMode = false;
@@ -220,11 +255,13 @@
       const node = el(id);
       if (node) node.innerHTML = "";
     }
+    renderEvidence();
     const noteEl = el("lit-note");
     if (noteEl) noteEl.value = "";
     const askEl = el("lit-qa-input");
     if (askEl) askEl.value = "";
     _hideLitProgress();
+    syncLibraryFilters();
     renderLibrary();
     renderReader();
     updateCompareBar();
@@ -247,15 +284,328 @@
     renderLibrary();
   }
 
+  // —— 文献库：本地筛选 / 排序（不发请求）——
+  // 阅读状态与元数据状态都由列表里已有的字段推导，不引入任何新数据：
+  //   total_reading_seconds / last_position 来自 projects 表；extract_status 来自 literature_meta 表。
+  function litReadingState(project) {
+    const seconds = Number(project.total_reading_seconds || 0);
+    const pos = Number(project.last_position || 0);
+    if (seconds <= 0 && pos <= 0) return "unread";
+    return pos >= 0.98 ? "done" : "reading";
+  }
+  function litMetaReady(meta) {
+    // extract_status 的真实取值只有 "pending" / "done"（见 api_server 写入点与
+    // literature.js 既有的 `!== "done"` 判断），不要写成 "ready"。
+    return String((meta && meta.extract_status) || "") === "done";
+  }
+  function _litTs(value) {
+    const t = Date.parse(String(value || ""));
+    return Number.isFinite(t) ? t : 0;
+  }
+  function _litYear(value) {
+    const m = String(value || "").match(/\d{4}/);
+    return m ? Number(m[0]) : 0;
+  }
+
   function filteredItems() {
     const q = store.search.trim().toLowerCase();
-    return store.items.filter(({ project, meta }) => {
+    const list = store.items.filter(({ project, meta }) => {
+      if (store.filterStatus !== "all" && litReadingState(project) !== store.filterStatus) return false;
+      if (store.filterMeta === "done" && !litMetaReady(meta)) return false;
+      if (store.filterMeta === "pending" && litMetaReady(meta)) return false;
       if (!q) return true;
       const hay = [
-        meta.title, project.subject, meta.authors, meta.year, meta.venue,
+        meta.title, project.subject, meta.authors, meta.year, meta.venue, meta.doi,
         (meta.keywords || []).join(" "), (project.tags || []).join(" "),
       ].join(" ").toLowerCase();
       return hay.includes(q);
+    });
+    const key = store.sortKey;
+    return list.slice().sort((a, b) => {
+      if (key === "opened") return _litTs(b.project.last_opened_at) - _litTs(a.project.last_opened_at);
+      if (key === "readtime") return Number(b.project.total_reading_seconds || 0) - Number(a.project.total_reading_seconds || 0);
+      if (key === "year") return _litYear(b.meta.year) - _litYear(a.meta.year);
+      return _litTs(b.project.created_at) - _litTs(a.project.created_at);
+    });
+  }
+
+  // 文献卡片上的状态徽标：阅读状态 + 元数据抽取状态，两者都由真实字段推导。
+  function litBadgeMarkup(project, meta) {
+    const state = litReadingState(project);
+    const label = { unread: "未读", reading: "在读", done: "已读" }[state] || "未读";
+    const cls = { unread: "is-unread", reading: "is-reading", done: "is-done" }[state] || "is-unread";
+    const metaBadge = litMetaReady(meta)
+      ? `<span class="lit-badge is-ready">已抽取</span>`
+      : `<span class="lit-badge">待抽取</span>`;
+    return `<span class="lit-badge ${cls}">${label}</span>${metaBadge}`;
+  }
+
+  // —— 统计 / 合集 / 页签（版式对齐重设计预览的 .lib-stats / 我的合集 / .lib-tabs）——
+  const LIT_SORT_LABELS = { imported: "最近导入", opened: "最近打开", readtime: "阅读时长", year: "发表年份" };
+
+  function litLibraryCounts() {
+    let reading = 0, done = 0, pending = 0;
+    for (const { project, meta } of store.items) {
+      const st = litReadingState(project);
+      if (st === "reading") reading += 1;
+      else if (st === "done") done += 1;
+      if (!litMetaReady(meta)) pending += 1;
+    }
+    return { total: store.items.length, reading, done, pending };
+  }
+
+  // 顶部统计条：全部按 store.items（整库）算，与左栏筛选无关。
+  function renderLibraryStats(shownCount) {
+    const statsEl = el("lit-lib-stats");
+    const countEl = el("lit-lib-count");
+    const c = litLibraryCounts();
+
+    if (statsEl) {
+      statsEl.innerHTML = [
+        ["在库", c.total], ["在读", c.reading], ["已读", c.done], ["待抽取", c.pending],
+      ].map(([label, value]) => `<span class="lit-stat"><b>${value}</b><span>${label}</span></span>`).join("");
+    }
+    if (countEl) {
+      const shown = Number(shownCount || 0);
+      countEl.textContent = (shown === c.total || c.total === 0)
+        ? ` · 共 ${c.total} 篇`
+        : ` · 共 ${c.total} 篇 · 当前筛选 ${shown} 篇`;
+    }
+    $$s("[data-lit-tab-count]").forEach((node) => {
+      const key = node.dataset.litTabCount;
+      const value = key === "all" ? c.total
+        : key === "pending" ? c.pending
+        : key === "done" ? c.done : c.reading;
+      node.textContent = String(value);
+    });
+    const sortLabel = el("lit-lib-sort-label");
+    if (sortLabel) sortLabel.textContent = LIT_SORT_LABELS[store.sortKey] || LIT_SORT_LABELS.imported;
+
+    const railCmp = el("lit-rail-compare");
+    if (railCmp) {
+      const n = store.compareIds.size;
+      const badge = railCmp.querySelector(".n");
+      if (badge) badge.textContent = String(n);
+      railCmp.disabled = !(n >= 2 && n <= 4);
+    }
+    renderCollections();
+    syncLibraryTabs();
+  }
+
+  // 「我的合集」= 文献标签聚合。知源没有单独的合集表，标签就是合集（list_literature 也按 tag 过滤）。
+  function renderCollections() {
+    const box = el("lit-collections");
+    if (!box) return;
+    const counts = new Map();
+    for (const { project } of store.items) {
+      for (const tag of (project.tags || [])) {
+        const key = String(tag || "").trim();
+        if (!key) continue;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+    const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    if (!entries.length) {
+      box.innerHTML = `<p class="lit-rail-empty">还没有合集。给文献加标签，就会出现在这里。</p>`;
+      return;
+    }
+    const active = store.search.trim();
+    box.innerHTML = entries.map(([tag, n]) => `
+      <button type="button" class="lit-rail-item${active === tag ? " is-on" : ""}" data-lit-tag="${esc(tag)}">
+        <span class="lit-rail-dot" aria-hidden="true"></span>
+        <span class="lit-rail-item-label">${esc(tag)}</span>
+        <span class="n">${n}</span>
+      </button>`).join("");
+  }
+
+  function syncLibraryTabs() {
+    const cur = store.filterMeta === "pending" ? "pending"
+      : store.filterStatus === "reading" ? "reading"
+      : store.filterStatus === "done" ? "done" : "all";
+    $$s("[data-lit-tab]").forEach((btn) => {
+      btn.setAttribute("aria-selected", String(btn.dataset.litTab === cur));
+    });
+  }
+
+  // —— 论文速览（版式对齐重设计预览的 .ov）：元数据 + 研究速览 + 建议提问 + 页面 ——
+  // 数据全部取自列表项已有的 meta（keywords / keypoints / suggested_questions 都在里面），
+  // 打开弹窗不调模型；只有点「生成速览」才会真的去跑 /insights。
+  function litKindLabel(meta) {
+    return meta && meta.arxiv_id ? "预印本 · arXiv" : "文献";
+  }
+  function ovFieldMarkup(label, value, missing) {
+    return `<div class="lit-ov-field"><dt>${esc(label)}</dt><dd${missing ? ' class="is-missing"' : ""}>${esc(value)}</dd></div>`;
+  }
+  function ovThumbMarkup(meta) {
+    const cap = meta.year || (litMetaReady(meta) ? "" : "待抽取");
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>${cap ? `<span class="lit-ov-thumb-cap">${esc(cap)}</span>` : ""}`;
+  }
+  function ovInsightMarkup(keypoints) {
+    const list = (keypoints || []).map(kpOfAI).filter((k) => k.heading || k.summary);
+    if (!list.length) return `<div class="lit-ov-empty"><p>尚未生成研究速览。</p></div>`;
+    return `<div class="lit-ov-insight-grid">${list.slice(0, 6).map((k, i) => `
+      <div class="lit-ov-insight">
+        <h3><span class="idx">${i + 1}</span>${esc(k.heading || "要点")}</h3>
+        ${k.summary ? `<p>${esc(k.summary)}</p>` : ""}
+        ${k.quote ? `<div class="src">原文：${esc(k.quote)}</div>` : ""}
+      </div>`).join("")}</div>`;
+  }
+  function ovQuestionsMarkup(questions) {
+    const list = (questions || []).map((q) => String(q || "").trim()).filter(Boolean);
+    if (!list.length) return `<p class="lit-ov-empty-text">还没有建议提问。点「生成速览」会一并产出。</p>`;
+    return `<div class="lit-ov-chips">${list.slice(0, 8).map((q) => `
+      <button type="button" class="lit-ov-chip" data-lit-action="ask" data-text="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
+  }
+
+  // 页面缩略图：真实原页图（低 dpi）。任何一步拿不到就整段省略，不报错、不占位。
+  async function ovPagesMarkup(id) {
+    let detail = store.currentId === id ? store.detail : null;
+    if (!detail) {
+      try { detail = await window.api(`/api/literature/${encodeURIComponent(id)}`); }
+      catch (_) { return ""; }
+    }
+    const src = (detail.sources || []).find(
+      (s) => s.source_id && s.source_id !== "__streaming__" && s.source_id.slice(0, 1) !== "_");
+    if (!src) return "";
+    const base = `/api/projects/${encodeURIComponent(id)}/sources/${encodeURIComponent(src.source_id)}`;
+    let pages;
+    try { pages = await window.api(`${base}/pages`); } catch (_) { return ""; }
+    const n = Number((pages && pages.n) || 0);
+    if (!n) return "";
+    const thumbs = [];
+    for (let p = 0; p < Math.min(n, 12); p += 1) {
+      thumbs.push(`<button type="button" class="lit-ov-page" data-lit-action="goto-page" data-page="${p}" title="第 ${p + 1} 页">
+        <img loading="lazy" src="${esc(origImgUrl(base, p, 72))}" alt="">
+        <span>${p + 1}</span>
+      </button>`);
+    }
+    return `<section class="lit-ov-section">
+      <div class="lit-ov-sec-head"><h2>页面</h2><span class="sub">共 ${n} 页 · 点缩略图直达</span></div>
+      <div class="lit-ov-thumbstrip">${thumbs.join("")}</div>
+    </section>`;
+  }
+
+  async function openOverview(id) {
+    const dlg = el("lit-overview-dialog");
+    const item = store.items.find((it) => it.project.project_id === id);
+    if (!dlg || !item) return;
+    const { project, meta } = item;
+    store.ovId = id;
+
+    el("lit-ov-kind").textContent = litKindLabel(meta);
+    el("lit-overview-title").textContent = meta.title || project.subject || "未命名论文";
+    el("lit-ov-authors").textContent =
+      [meta.authors, [meta.venue, meta.year].filter(Boolean).join(" · ")]
+        .filter(Boolean).join(" · ") || "尚未抽取元数据";
+    el("lit-ov-thumb").innerHTML = ovThumbMarkup(meta);
+
+    const pos = Math.max(0, Math.min(1, Number(project.last_position || 0)));
+    const mins = Math.round(Number(project.total_reading_seconds || 0) / 60);
+    el("lit-ov-fields").innerHTML = [
+      ovFieldMarkup("来源", meta.venue || "—", !meta.venue),
+      ovFieldMarkup("发表年份", meta.year || "—", !meta.year),
+      ovFieldMarkup("DOI", meta.doi || "未补全", !meta.doi),
+      ovFieldMarkup("阅读进度", pos > 0 ? `${Math.round(pos * 100)}% · 阅读 ${Math.max(1, mins)} 分钟` : "未开始", pos <= 0),
+      ovFieldMarkup("关键词", (meta.keywords || []).join(" / ") || "—", !(meta.keywords || []).length),
+      ovFieldMarkup("元数据", litMetaReady(meta) ? "已抽取" : "待抽取"),
+    ].join("");
+    el("lit-ov-tags").innerHTML = (project.tags || [])
+      .map((t) => `<span class="lit-tag">${esc(t)}</span>`).join("");
+
+    const keypoints = meta.keypoints || [];
+    el("lit-ov-actions").innerHTML = `
+      <button class="lit-ov-btn is-primary" type="button" data-lit-action="read">继续阅读</button>
+      <button class="lit-ov-btn" type="button" data-lit-action="translate-all">全文翻译</button>
+      <button class="lit-ov-btn" type="button" data-lit-action="toggle-compare">${store.compareIds.has(id) ? "移出对比" : "加入对比"}</button>
+      <button class="lit-ov-btn" type="button" data-lit-action="edit-meta">编辑信息</button>`;
+
+    el("lit-ov-body").innerHTML = `
+      <section class="lit-ov-section">
+        <div class="lit-ov-sec-head">
+          <h2>研究速览</h2>
+          <span class="sub">由本篇正文归纳</span>
+          <button class="lit-ov-gen-btn" type="button" data-lit-action="gen-insights">${keypoints.length ? "重新生成" : "生成速览"}</button>
+        </div>
+        ${ovInsightMarkup(keypoints)}
+      </section>
+      <section class="lit-ov-section">
+        <div class="lit-ov-sec-head"><h2>建议提问</h2><span class="sub">点一下直接进问答</span></div>
+        ${ovQuestionsMarkup(meta.suggested_questions || [])}
+      </section>
+      <div id="lit-ov-pages"></div>
+      <div class="lit-ov-foot">依据说明：本份速览的内容来自本篇文献正文的归纳；文中未覆盖之处已省略，未作任何外部补充。</div>`;
+
+    if (!dlg.open) dlg.showModal();
+    const pagesHtml = await ovPagesMarkup(id);
+    const holder = el("lit-ov-pages");
+    if (holder && store.ovId === id) holder.innerHTML = pagesHtml;
+  }
+
+  async function onOverviewAction(event) {
+    const target = event.target.closest("[data-lit-action]");
+    if (!target) return;
+    const dlg = el("lit-overview-dialog");
+    const id = store.ovId;
+    if (!id) return;
+    const action = target.dataset.litAction;
+
+    if (action === "read") { dlg.close(); selectLiterature(id); return; }
+    if (action === "translate-all") {
+      dlg.close();
+      await selectLiterature(id);
+      if (!store.autoTrans) toggleAutoTrans();
+      return;
+    }
+    if (action === "toggle-compare") {
+      toggleCompare(id);
+      target.textContent = store.compareIds.has(id) ? "移出对比" : "加入对比";
+      return;
+    }
+    if (action === "edit-meta") { dlg.close(); await selectLiterature(id); openMetaDialog(); return; }
+    if (action === "gen-insights") { await regenerateInsights(id, target); return; }
+    if (action === "ask") {
+      const q = target.dataset.text || "";
+      dlg.close();
+      await selectLiterature(id);
+      switchTab("qa");
+      const input = el("lit-qa-input");
+      if (input) { input.value = q; input.focus(); }
+      return;
+    }
+    if (action === "goto-page") {
+      const page = Number(target.dataset.page || 0);
+      dlg.close();
+      await selectLiterature(id);
+      store.readMode = "original";
+      renderReader();
+      window.setTimeout(() => goToOrigPage(page), 400);
+    }
+  }
+
+  async function regenerateInsights(id, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
+    try {
+      const res = await window.api(
+        `/api/literature/${encodeURIComponent(id)}/insights?refresh=1`, { method: "POST" });
+      const item = store.items.find((it) => it.project.project_id === id);
+      if (item) {
+        item.meta.keypoints = res.keypoints || [];
+        item.meta.suggested_questions = res.suggested_questions || [];
+      }
+      if (store.ovId === id) await openOverview(id);
+    } catch (error) {
+      if (btn) { btn.disabled = false; btn.textContent = "重试生成"; }
+    }
+  }
+
+  // 把 store 里的筛选 / 排序状态回写到左栏胶囊的 aria-pressed（切账号 / 初始化时用）。
+  function syncLibraryFilters() {
+    const current = { status: store.filterStatus, meta: store.filterMeta, sort: store.sortKey };
+    $$s("[data-lit-filter]").forEach((group) => {
+      const value = current[group.dataset.litFilter];
+      group.querySelectorAll(".lit-rail-chip").forEach((chip) => {
+        chip.setAttribute("aria-pressed", String(chip.dataset.value === value));
+      });
     });
   }
 
@@ -265,6 +615,7 @@
     const items = filteredItems();
     const libBtn = el("lit-library-toggle");
     if (libBtn && !store.showingLibrary) syncLibraryToggleLabel();
+    renderLibraryStats(items.length);
 
     if (!store.items.length) {
       listEl.className = "lit-list empty-state";
@@ -288,19 +639,32 @@
       const active = project.project_id === store.currentId ? " active" : "";
       const checked = store.compareIds.has(project.project_id);
       const readingInfo = formatReadingInfo(project);
+      const pos = Math.max(0, Math.min(1, Number(project.last_position || 0)));
+      const pct = Math.round(pos * 100);
+      const cap = meta.year || (litMetaReady(meta) ? "" : "待抽取");
       return `
-        <div class="lit-item${active}">
+        <article class="lit-item${active}">
           <button class="lit-item-check${checked ? " checked" : ""}" type="button" data-lit-action="toggle-compare" data-id="${esc(project.project_id)}" role="checkbox" aria-checked="${checked ? "true" : "false"}" aria-label="选择用于对比">
             <span class="lit-checkmark" aria-hidden="true"></span>
           </button>
+          <span class="lit-item-thumb" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            ${cap ? `<span class="lit-item-thumb-cap">${esc(cap)}</span>` : ""}
+          </span>
           <button class="lit-item-main" type="button" data-lit-action="select" data-id="${esc(project.project_id)}">
             <span class="lit-item-title">${esc(title)}</span>
             <span class="lit-item-sub">${esc([authors, venueYear].filter(Boolean).join(" · ") || "尚未抽取元数据")}</span>
+            <span class="lit-item-badges">${litBadgeMarkup(project, meta)}</span>
             ${tags ? `<span class="lit-item-tags">${tags}</span>` : ""}
+            ${pos > 0 ? `<span class="lit-item-progress" aria-hidden="true"><i style="width:${pct}%"></i></span>` : ""}
             ${readingInfo ? `<span class="lit-item-reading-info">${readingInfo}</span>` : ""}
           </button>
+          <div class="lit-item-actions">
+            <button class="lit-item-btn is-primary" type="button" data-lit-action="select" data-id="${esc(project.project_id)}">继续阅读</button>
+            <button class="lit-item-btn" type="button" data-lit-action="overview" data-id="${esc(project.project_id)}">速览</button>
+          </div>
           <button class="lit-item-delete" type="button" data-lit-action="delete" data-id="${esc(project.project_id)}" aria-label="删除文献" title="删除">×</button>
-        </div>`;
+        </article>`;
     }).join("");
     updateCompareBar();
   }
@@ -392,6 +756,8 @@
       store.qaSelections = [];
       store.qaSelection = null;
       store.insights = null;
+      // 换文献必须清掉上一篇的「相关原文」：坐标是上一篇的页与 bbox，留着必然跳错位置
+      clearEvidence();
       // 标注（高亮 / 阅读重点增删改 / 划词笔记 / 阅读笔记）跟着账号走：切文献时从服务器拉一次，
       // 必须赶在 restoreOriginalHighlights() 之前，否则会读到上一篇的缓存。
       await loadMarks(id);
@@ -745,11 +1111,61 @@
       : `打开文献库管理面板${n ? `（已收录 ${n} 篇）` : "（还没有文献）"}`;
     btn.setAttribute("aria-label", showing ? "返回阅读" : "文献库");
     btn.setAttribute("aria-pressed", showing ? "true" : "false");
+    // 可见文案也要跟着换，否则开着文献库时按钮还写着「文献库」，用户不知道点了会回哪
+    const text = el("lit-library-toggle-text");
+    if (text) text.textContent = showing ? "返回精读" : "文献库";
     const badge = el("lit-library-count");
     if (badge) {
       badge.textContent = String(n);
       badge.hidden = showing || !n;
     }
+  }
+
+  // —— 阅读助手侧栏收起 / 展开 ——
+  // 整页对照时左右两栏都不够宽，收起助手能一次宽出一整栏（320px）。
+  function applyAsideCollapsed() {
+    const layout = $s(".sr-layout");
+    // 文献库面板（#lit-library-panel）就住在 .sr-aside 里。库面板开着时「收起阅读助手」
+    // 必须失效：否则 aside 被压成 22px、子元素全部 display:none —— 整个文献库变成一片空白。
+    // 这是真实踩到的 bug：上一次精读点过「收起」，localStorage 存了 1，
+    // 下次进来 enter() 直接 showLibraryPanel(true) → is-library + is-aside-collapsed 同时挂上。
+    const active = !!store.asideCollapsed && !store.showingLibrary;
+    if (layout) layout.classList.toggle("is-aside-collapsed", active);
+    const btn = el("lit-aside-collapse");
+    if (btn) {
+      const label = store.asideCollapsed ? "展开阅读助手" : "收起阅读助手";
+      btn.setAttribute("aria-pressed", store.asideCollapsed ? "true" : "false");
+      btn.title = label;
+      btn.setAttribute("aria-label", label);
+    }
+  }
+
+  function toggleAsideCollapsed() {
+    // 库面板开着时收起按钮已被隐藏（CSS），这里再兜一层：否则点了只是把偏好改掉、
+    // 要等关掉文献库才生效，观感像「按钮失灵 + 之后莫名收起」。
+    if (store.showingLibrary) return;
+    store.asideCollapsed = !store.asideCollapsed;
+    try {
+      localStorage.setItem(ASIDE_COLLAPSE_KEY, store.asideCollapsed ? "1" : "0");
+    } catch (_) { /* 隐私模式写不进去不影响本次会话 */ }
+    applyAsideCollapsed();
+  }
+
+  // 库视图与「概念图谱」互斥：图谱面板（lit-compare-view.js 注入的 #lit-compare-view）
+  // 是挂在 .sr-reader 里的，而库视图会隐藏 .sr-reader —— 两者同时开就是「点了没反应」。
+  // 所以图谱打开时，库面板退回侧栏宽度（.sr-aside 320px），与图谱并排显示。
+  function syncLibraryLayout() {
+    const layout = $s(".sr-layout");
+    if (!layout) return;
+    const panel = el("lit-compare-view");
+    const cvOpen = !!panel && !panel.classList.contains("hidden");
+    const next = !!store.showingLibrary && !cvOpen;
+    if (layout.classList.contains("is-library") !== next) {
+      layout.classList.toggle("is-library", next);
+    }
+    // 库面板开合会改变「收起阅读助手」是否适用（见 applyAsideCollapsed）：
+    // 开库 → 强制展开；关库 → 还原用户偏好。图谱开关走 MutationObserver 也会到这里。
+    applyAsideCollapsed();
   }
 
   function showLibraryPanel(show) {
@@ -759,6 +1175,10 @@
     $$s(".sr-panel[data-panel]").forEach((p) => p.classList.toggle("hidden", show));
     const tabs = $s(".sr-tabs");
     if (tabs) tabs.classList.toggle("hidden", show);
+    // 库视图占满整个工作区：给布局挂 is-library，由 CSS 收起精读栏与分隔条，
+    // 让左栏（.sr-aside）撑满。不改 DOM 结构，三个外部模块（paper-search-ui /
+    // lit-compare-view / citation-ui）依赖的 #lit-library-panel 内部选择器全部原样保留。
+    syncLibraryLayout();
     syncLibraryToggleLabel(show);
     if (!show) {
       switchTab(store.activeTab);
@@ -794,6 +1214,7 @@
     renderKeypoints();
     renderHighlights();
     renderNotes();
+    renderEvidence(); // 相关原文跟着问答面板一起，切标签回来时也要重新贴合当前状态
   }
 
   // —— 阅读正文 ——
@@ -1273,7 +1694,12 @@
   function restoreOriginalHighlights() {
     store.originalHl = getHighlights(store.currentId)
       .filter((h) => h.mode === "original" && Number.isFinite(h.page) && Array.isArray(h.segs))
-      .map((h) => ({ id: h.id, page: h.page, text: h.text || "", segs: h.segs }));
+      // side 必须一起还原：整页对照译文页那条高亮靠它跟原文侧那条区分，
+      // 丢了 side 就会在左边的原文文本层上按中文的行号去画（画歪/画不出来）
+      .map((h) => ({
+        id: h.id, page: h.page, side: h.side === "ps" ? "ps" : "orig",
+        text: h.text || "", segs: h.segs,
+      }));
   }
 
   // 判断公式是否为需屏蔽的碎片（过短 / 断开运算符头尾）。碎片不显示截图，回退 LaTeX。
@@ -2185,17 +2611,24 @@
     body.innerHTML = `
       <div class="orig-reader">
         <div class="orig-body" data-orig-body>
-          <div class="orig-stage" data-orig-stage>
-            <div class="orig-page-wrap" data-orig-wrap>
-              <img class="orig-page-img" data-orig-img alt="原页" draggable="false">
-              <div class="orig-formula-layer" data-orig-fl></div>
-              <div class="orig-hl-layer" data-orig-hl></div>
-              <div class="orig-text-layer" data-orig-tl></div>
-              <div class="orig-fig-layer" data-orig-fig></div>
-              <div class="orig-hover-layer" data-orig-hover></div>
+          <div class="orig-pan-canvas" data-orig-canvas>
+            <div class="orig-stage" data-orig-stage>
+              <div class="orig-page-wrap" data-orig-wrap>
+                <img class="orig-page-img" data-orig-img alt="原页" draggable="false">
+                <div class="orig-formula-layer" data-orig-fl></div>
+                <div class="orig-hl-layer" data-orig-hl></div>
+                <div class="orig-text-layer" data-orig-tl></div>
+                <div class="orig-fig-layer" data-orig-fig></div>
+                <!-- 联动高亮层：在对面栏划词时，本页对应行会被涂上同色底（见 showOrigLink） -->
+                <div class="orig-link-layer" data-orig-link></div>
+                <div class="orig-hover-layer" data-orig-hover></div>
+              </div>
+              <div class="orig-loading" data-orig-loading><span class="compass">翻</span><p>正在载入原页…</p></div>
+              <div class="orig-err hidden" data-orig-err></div>
             </div>
-            <div class="orig-loading" data-orig-loading><span class="compass">翻</span><p>正在载入原页…</p></div>
-            <div class="orig-err hidden" data-orig-err></div>
+            <!-- 译文栏（pdf-spread-ui.js 注入的 .pdf-spread-pane）挂在 canvas 里、与
+                 .orig-stage 并列：两者共用同一个 scrollLeft/scrollTop，这就是「左右联动」
+                 的实现方式——同父同滚动容器天然同步，不需要 JS 互相抄 scroll 值。 -->
           </div>
           <div class="orig-trans-resizer" role="separator" aria-orientation="vertical" tabindex="0"
                title="拖动调整全文翻译宽度" aria-label="拖动调整全文翻译宽度"></div>
@@ -2203,6 +2636,13 @@
         </div>
         <div class="orig-pagenav" data-orig-pagenav>
           <span class="orig-page-label" data-orig-pagelabel>— / —</span>
+          <div class="orig-zoom" role="group" aria-label="原页与译文页缩放">
+            <button type="button" class="secondary-button orig-zoom-btn" data-orig="zoom-out" aria-label="缩小" title="缩小">−</button>
+            <span class="orig-zoom-label" data-orig-label>100%</span>
+            <button type="button" class="secondary-button orig-zoom-btn" data-orig="zoom-in" aria-label="放大" title="放大">＋</button>
+            <button type="button" class="secondary-button orig-grab-btn" data-orig="grab"
+                    aria-pressed="false" aria-label="抓手模式" title="抓手模式：开启后按住左键拖动页面">${GRAB_SVG}</button>
+          </div>
           <button type="button" class="secondary-button" data-orig="prev" aria-label="上一页">‹ 上一页</button>
           <button type="button" class="secondary-button" data-orig="next" aria-label="下一页">下一页 ›</button>
         </div>
@@ -2214,6 +2654,9 @@
     initOrigTransResizing();
     watchOrigWrapResize(body.querySelector("[data-orig-wrap]"));
     initOrigHover(body.querySelector("[data-orig-wrap]"));
+    // 抓手：原页 stage 此刻就有；译文栏（[data-ps-body]）是 pdf-spread-ui.js 随后注入的，
+    // 那边挂载/渲染后会再回调一次 refreshOrigPanTargets()，两边互为兜底。
+    refreshOrigPanTargets();
     origHlRefreshUI();
     loadOriginalMeta(base, ac).then(() => {
       if (ac.signal.aborted) return;
@@ -2367,6 +2810,7 @@
     if (ac.signal.aborted) return;
     const wrap = el("lit-reader-body")?.querySelector("[data-orig-wrap]");
     if (!wrap) return;
+    origLinkRange = null; // 换页了：上一页的联动高亮行号对新页没有意义
     const p = store.originalPage;
     const pmeta = originalMetaForPage(p);
     const loading = el("lit-reader-body")?.querySelector("[data-orig-loading]");
@@ -2487,7 +2931,9 @@
     if (!lines.length) return;
     const pageW = pmeta.w || img.naturalWidth || 612;
     const scale = img.clientWidth / pageW;
-    const segs = (store.originalHl || []).filter((h) => h.page === store.originalPage);
+    // 只取**原文侧**的高亮：side="ps" 的是整页对照译文页那条（行号是中文页的），
+    // 拿来在英文文本层上画会整片画歪。老数据没有 side 字段，默认算原文侧。
+    const segs = (store.originalHl || []).filter((h) => h.page === store.originalPage && h.side !== "ps");
     // 「阅读重点」自动高亮：把 keypoint quote 匹配到本页文本层行内，叠加与手动高亮区分
     const autoSegs = collectOrigAutoHlSegs(lines);
     if (!store.highlightMode || !store.autoHighlights.length) autoSegs.length = 0;
@@ -2725,6 +3171,11 @@
     const body = el("lit-reader-body");
     const wrap = body && body.querySelector("[data-orig-wrap]");
     if (wrap && store.originalPage >= 0) renderOrigTextLayer(wrap, originalMetaForPage(store.originalPage));
+    // 译文页高亮由 pdf-spread-ui.js 渲染（它才是那一层的 DOM 主人）。用可选链：
+    // 没开整页对照时那个全局不存在，删掉 pdf-spread 那行脚本也要能正常工作。
+    if (window.KnowOriginPsPane && typeof window.KnowOriginPsPane.refreshHl === "function") {
+      window.KnowOriginPsPane.refreshHl();
+    }
     const undo = body && body.querySelector('[data-orig="undo-hl"]');
     const redo = body && body.querySelector('[data-orig="redo-hl"]');
     const clear = body && body.querySelector('[data-orig="clear-hl"]');
@@ -2925,7 +3376,9 @@
 
     const pointToWrapPx = (ev) => {
       const wr = wrap.getBoundingClientRect();
-      return { x: ev.clientX - wr.left, y: ev.clientY - wr.top };
+      // 返回设计像素（与 pxBox 同口径）：rect 与 clientX 都是视觉像素，先除回界面缩放。
+      const scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      return { x: (ev.clientX - wr.left) / scale, y: (ev.clientY - wr.top) / scale };
     };
 
     // 面板默认放在「AI 解释」按钮/高亮右侧；空间不足才翻到左侧，不再放高亮下侧。
@@ -2940,7 +3393,7 @@
       // 各自都能拿到「夹完之后」的真实高度去定 top。
       p.style.maxHeight = Math.min(
         Math.max(120, nh - PAD * 2),
-        Math.round(window.innerHeight * 0.68)
+        Math.round(window.innerHeight * 0.68 / ((window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1))
       ) + "px";
       const pw = p.offsetWidth || 520;
       const ph = p.offsetHeight || 0;
@@ -2957,6 +3410,48 @@
         if (ty < vp.top + PAD) ty = vp.top + PAD;
       }
       p.style.top = Math.max(4, ty) + "px";
+    };
+
+    // 面板头部右侧的两个开关：全屏 / 回到阅读视图内。两个都在，用户不会走进死路
+    //（全屏后落点可能被夹到 wrap 内看不见的地方，得能一键收回来）。
+    // 全屏的实现见 styles-literature.css：把 .orig-hover-pop 从文字层里摘出来挂到
+    // <body>，躲开 .orig-body / .sr-reader-body 两层 overflow 裁剪 —— 只靠调 z-index
+    // 是出不来的，overflow 裁剪跟 z-index 无关。
+    const popHeadBtns = () => `
+      <button class="orig-hover-pop-btn" type="button" data-ohfull aria-label="全屏显示解释">全屏</button>
+      <button class="orig-hover-pop-btn" type="button" data-ohdock aria-label="回到阅读视图内" hidden>收回</button>`;
+
+    // 全屏/收回切换。挂到 body 后坐标是视口坐标（fixed），收回时恢复 wrap 内坐标。
+    const setPopFull = (on) => {
+      const anchor = active;
+      // 记住切换前的落点，收回时贴回原处，别让用户重新找一遍
+      if (!pop.dataset.docked) {
+        pop.dataset.docked = JSON.stringify({ l: pop.style.left, t: pop.style.top });
+      }
+      if (on) {
+        document.body.appendChild(pop);
+        pop.classList.add("is-full");
+        // 视口坐标：靠右上角站定，右边留出滚动条 + 呼吸位
+        pop.style.left = Math.max(8, window.innerWidth - (pop.offsetWidth || 620) - 28) + "px";
+        pop.style.top = "24px";
+        pop.style.maxHeight = "";
+      } else {
+        pop.classList.remove("is-full");
+        const host = wrap.querySelector("[data-orig-hover]");
+        if (host) host.appendChild(pop);
+        const docked = pop.dataset.docked || "";
+        delete pop.dataset.docked;
+        let placed = false;
+        try {
+          const d = JSON.parse(docked || "{}");
+          if (d.l) { pop.style.left = d.l; pop.style.top = d.t || "4px"; placed = true; }
+        } catch (_) { /* 记的内容坏了就按锚点重摆 */ }
+        if (!placed && anchor) placeOrigPop(pop, anchor);
+      }
+      const full = pop.querySelector("[data-ohfull]");
+      const dock = pop.querySelector("[data-ohdock]");
+      if (full) full.hidden = on;
+      if (dock) dock.hidden = !on;
     };
 
     // 命中检测：优先文本层行 → 图/表热区
@@ -3090,6 +3585,7 @@
         <div class="orig-hover-pop-head">
           <span class="orig-hover-pop-title">${kindLabel}解释</span>
           <span class="orig-hover-busy"><span class="orig-hover-spin" aria-hidden="true"></span>正在解析</span>
+          ${popHeadBtns()}
         </div>
         <div class="orig-hover-pop-body"><div class="orig-hover-skeleton"><i></i><i></i><i></i></div></div>`;
       pop.style.display = "block";
@@ -3107,6 +3603,7 @@
           <div class="orig-hover-pop-head">
             <span class="orig-hover-pop-title">${kindLabel}解释</span>
             <button class="orig-hover-close" type="button" data-ohclose aria-label="关闭">×</button>
+            ${popHeadBtns()}
           </div>
           <div class="orig-hover-pop-body">${renderMarkdown(res.answer || "（无解释）")}</div>`;
         pop.style.display = "block";
@@ -3130,6 +3627,7 @@
           <div class="orig-hover-pop-head">
             <span class="orig-hover-pop-title">${kindLabel}解释</span>
             <button class="orig-hover-close" type="button" data-ohclose aria-label="关闭">×</button>
+            ${popHeadBtns()}
           </div>
           <div class="orig-hover-pop-body">
             <p class="orig-hover-err">${esc((error && error.message) || "解析失败")}</p>
@@ -3190,10 +3688,18 @@
     // 面板内的关闭按钮走事件委托：面板 innerHTML 每次重写，绑定不会丢
     pop.addEventListener("click", (ev) => {
       const c = ev.target && ev.target.closest ? ev.target.closest("[data-ohclose]") : null;
-      if (!c) return;
-      ev.stopPropagation();
-      if (busyAsking) return;      // 解析中：让「正在解析」留在屏幕上
-      closePop();
+      if (c) {
+        ev.stopPropagation();
+        if (busyAsking) return;      // 解析中：让「正在解析」留在屏幕上
+        // 全屏面板若还挂在 body 上，关掉后要收回去，否则它一直浮在整页之上
+        if (pop.classList.contains("is-full")) setPopFull(false);
+        closePop();
+        return;
+      }
+      const fullBtn = ev.target && ev.target.closest ? ev.target.closest("[data-ohfull]") : null;
+      if (fullBtn) { ev.stopPropagation(); setPopFull(true); return; }
+      const dockBtn = ev.target && ev.target.closest ? ev.target.closest("[data-ohdock]") : null;
+      if (dockBtn) { ev.stopPropagation(); setPopFull(false); return; }
     });
 
     // 「选中」：把当前悬浮的段落/图/公式挂到左侧问答栏为提问上下文（公式、图无法选中文字，故用按钮）
@@ -3301,14 +3807,17 @@
   // wrap.clientHeight 当纵向边界 —— 那样夹完照样落在 .orig-body 的裁剪区里，
   // 表现就是「面板下半截、或拖下去的按钮在屏幕上凭空消失」。
   function origVisibleBox(wrap) {
+    // rect 是视觉像素，而 style.top / clientHeight 是设计像素：界面整体缩放时先除回设计像素。
+    const scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
     const fallback = { top: 0, bottom: (wrap && wrap.clientHeight) || 700 };
     if (!wrap || !wrap.closest) return fallback;
-    const stageEl = wrap.closest("[data-orig-stage]");
+    // 边界取「滚动容器」= .orig-pan-canvas（原来是 .orig-stage，现在 stage 不再滚动）。
+    const stageEl = wrap.closest("[data-orig-canvas]") || wrap.closest("[data-orig-stage]");
     if (!stageEl) return fallback;
     const wr = wrap.getBoundingClientRect();
     const sr = stageEl.getBoundingClientRect();
-    const top = Math.max(0, sr.top - wr.top);
-    const bottom = Math.min(wrap.clientHeight || sr.height, sr.bottom - wr.top);
+    const top = Math.max(0, (sr.top - wr.top) / scale);
+    const bottom = Math.min(wrap.clientHeight || sr.height / scale, (sr.bottom - wr.top) / scale);
     if (!(bottom > top)) return fallback;
     return { top, bottom };
   }
@@ -3316,6 +3825,7 @@
   // 解释面板自由拖动（wrap 内坐标，无缩放换算）
   function startOrigDrag(pop, startEv) {
     const wrap = pop.closest("[data-orig-wrap]");
+    const scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
     const startX = startEv.clientX, startY = startEv.clientY;
     const cl = parseFloat(pop.style.left) || 0;
     const ct = parseFloat(pop.style.top) || 0;
@@ -3329,8 +3839,8 @@
     const topHi = Math.max(topLo, vp.bottom - 4 - Math.min(pop.offsetHeight || 0, vpH - 8));
     const move = (e) => {
       if (e.preventDefault) e.preventDefault();
-      pop.style.left = origClamp(cl + (e.clientX - startX), -pw + 60, Math.max(60, wrapW - 60)) + "px";
-      pop.style.top = origClamp(ct + (e.clientY - startY), topLo, topHi) + "px";
+      pop.style.left = origClamp(cl + (e.clientX - startX) / scale, -pw + 60, Math.max(60, wrapW - 60)) + "px";
+      pop.style.top = origClamp(ct + (e.clientY - startY) / scale, topLo, topHi) + "px";
     };
     const up = () => {
       window.removeEventListener("mousemove", move);
@@ -3420,6 +3930,8 @@
       }
     }
     applyOrigLineFit(fitList, tlEl);
+    // 联动高亮层：只是几条按行 bbox 贴的色块，跟着新 scale 重贴一次即可
+    paintOrigLink();
     // 热区（图表/公式可点击区域）自带 scale 计算，直接重建
     renderOrigHotspots(wrap);
     // 悬浮解释 UI 的定位基于旧几何，先收起，等下次 hover 重新弹出
@@ -3440,7 +3952,7 @@
   function watchOrigWrapResize(wrap) {
     if (!wrap) return;
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", () => relayoutOrigOverlays(wrap));
+      window.addEventListener("resize", () => { applyOrigZoom(); relayoutOrigOverlays(wrap); });
       return;
     }
     if (!_origRO) {
@@ -3449,6 +3961,11 @@
         _origROQueued = true;
         requestAnimationFrame(() => {
           _origROQueued = false;
+          // 先重算车道（applyOrigZoom 只读 canvas.clientWidth，与车道宽度无关，
+          // 收敛：车道写的是同一个值就不再触发 RO），再重排浮层。
+          // 只 relayout 不重算的话，收起侧栏 / 改窗口宽度后 --orig-lane-w 还是旧值，
+          // 100% 下页图就填不满阅读区（右侧留白 = 用户眼里的「红框没铺满」）。
+          applyOrigZoom();
           relayoutOrigOverlays(document.querySelector("[data-orig-wrap]"));
         });
       });
@@ -3459,18 +3976,221 @@
     }
     _origROTarget = wrap;
     _origRO.observe(wrap);
+    // 还要盯住画布本身：车道的宽度由画布的**可视宽**推出来，而 wrap 的宽度就是车道
+    // （width:100%）—— 侧栏展开/收起、窗口放大缩小只改画布、不改 wrap，只 observe(wrap)
+    // 收不到信号。
+    const canvas = wrap.closest("[data-orig-canvas]");
+    if (canvas) _origRO.observe(canvas);
   }
 
   function applyOrigZoom() {
-    const wrap = el("lit-reader-body")?.querySelector("[data-orig-wrap]");
-    const label = el("lit-reader-body")?.querySelector("[data-orig-label]");
+    const body = el("lit-reader-body");
+    const wrap = body?.querySelector("[data-orig-wrap]");
+    const label = body?.querySelector("[data-orig-label]");
+    // 整页对照的译文页（.ps-img）吃同一个缩放：一个缩放同时管左右两栏，
+    // 否则原文放大、译文不动，对照就没法看。
+    const origBody = body?.querySelector("[data-orig-body]");
+    if (origBody) {
+      origBody.style.setProperty("--ps-zoom", String(store.originalZoom));
+      // 铺满双页时 .orig-stage 的 flex:1 1 0 会压掉 --orig-lane-w（见 styles-pdf-spread.css）。
+      // 用这个类告诉 CSS「现在不是 100%，车道优先」，原文页才跟着一起放大。
+      origBody.classList.toggle("is-zoomed", Math.abs(store.originalZoom - 1) > 1e-3);
+    }
     if (!wrap) return;
-    // 占满：默认 100% 宽贴合容器；放大时超出可横向滚动
-    wrap.style.width = Math.round(100 * store.originalZoom) + "%";
+    // 「原文车道」宽度：以「未放大的可视宽度 × zoom」为准，写成设计像素交给 CSS。
+    // 为什么不让 CSS 自己算：车道的宽度必须是**确定值**，否则 canvas.scrollWidth
+    // 撑不开（译文栏被顶到可视区外，还没有横向滚动条去够它）。
+    // 视觉像素 / 界面缩放 = 设计像素。
+    const canvas = body.querySelector("[data-orig-canvas]");
+    const pane = body.querySelector(".pdf-spread-pane:not(.hidden)");
+    // 译文栏宽必须与缩放**无关**才能当车道计算的输入。量 pane 的 getBoundingClientRect
+    // 会有两处坑：① 界面整体缩放时它是视觉像素、要除回 --ui-scale，除得不对车道就
+    // 跟着界面缩放漂；② 铺满态栏宽是「50% of 正文」，正文宽又受车道影响 → 环。
+    // 所以：
+    //   - 侧栏态：栏宽就是 CSS 上的定值 --ps-w（460px），直接读变量，不 measure；
+    //   - 铺满态：栏宽 ≡ 正文宽 / 2，用正文宽（下方 canvas.clientWidth 的容器）算。
+    const paneFixedW = (() => {
+      if (!pane || pane.classList.contains("is-spread-mode")) return 0;
+      const raw = getComputedStyle(pane).getPropertyValue("--ps-w").trim();
+      const n = parseFloat(raw);
+      if (Number.isFinite(n)) return n;
+      const cw = pane.getBoundingClientRect().width;
+      return cw > 0 ? cw : 0;
+    })();
+    // 车道可用宽 = 画布可视宽（设计像素；画布宽度只由阅读器容器决定，与车道/缩放无关，
+    // 所以拿它当输入是安全的）减去译文栏所占的那部分。
+    const canvasW = canvas ? canvas.clientWidth : 0;
+    const paneW = pane && pane.classList.contains("is-spread-mode") ? canvasW / 2 : paneFixedW;
+    const baseAvail = canvasW ? Math.max(120, canvasW - paneW) : 0;
+    if (baseAvail) {
+      origBody.style.setProperty("--orig-lane-w", Math.round(baseAvail * store.originalZoom) + "px");
+    }
+    wrap.style.width = "";   // 宽度交给车道，别再往 wrap 上写百分比（两份缩放会叠乘）
     if (label) label.textContent = Math.round(store.originalZoom * 100) + "%";
+    // 译文页的百分比基：.ps-body 现在 overflow:visible、宽度由内容决定，100% 没有确定基，
+    // 用设计像素写死栏内可用宽度。⚠️ 基必须是「**未放大**的栏内宽」——
+    // 之前的写法拿 .ps-body 的 clientWidth 当基，而它本身已经是「基 × zoom」的结果，
+    // 再乘一次 zoom 就成了指数增长：100%→200% 图宽从 435px 窜到 35152px。
+    // 基只由栏宽决定，与缩放无关，所以从 pane 定值推、不 measure .ps-body。
+    if (pane) {
+      const padL = parseFloat(getComputedStyle(pane.querySelector("[data-ps-body]") || pane).paddingLeft) || 0;
+      const padR = parseFloat(getComputedStyle(pane.querySelector("[data-ps-body]") || pane).paddingRight) || 0;
+      const avail = paneW - padL - padR - 2; // 2 = 左右边框
+      if (avail > 0) origBody.style.setProperty("--ps-lane-w", Math.round(avail) + "px");
+    }
     // 缩放改变 wrap 宽度：重排公式/文字/热区各层（内部含 renderOrigHotspots），
     // 并隐藏可能错位的悬浮高亮
     relayoutOrigOverlays(wrap);
+  }
+
+  // 原页 / 译文页缩放。渲染用的 dpi 由 originalZoom 决定（见 renderOrigPage），
+  // 所以放大后必须重拉一次当前页，否则只是把低清图拉大、更糊。
+  function setOrigZoom(next) {
+    const v = Math.max(0.5, Math.min(3, Math.round(next * 100) / 100));
+    if (v === store.originalZoom) return;
+    store.originalZoom = v;
+    applyOrigZoom();
+    if (store.readMode !== "original") return;
+    const base = originalBase();
+    if (!base) return;
+    if (_origAbort) _origAbort.abort();
+    _origAbort = new AbortController();
+    renderOrigPage(base, _origAbort);
+  }
+
+  // 供 pdf-spread-ui.js 调用：译文栏出现/重渲染后，把抓手模式同步到它上面。
+  // 挂在 window 上而不是 import —— 两个文件都是经典 <script>，无模块系统，
+  // 且 pdf-spread-ui.js 必须能在 literature.js 之前/之后任意顺序加载。
+  window.KnowOriginOrigGrab = { refresh: refreshOrigPanTargets };
+
+  // 供 pdf-spread-ui.js 调用：译文页的透明文本层要跟左栏完全同一套几何算法
+  // （留 _origBB 供重排、两遍法把行内文字贴合 bbox 宽）。复制一份到那边就会各漂各的。
+  window.KnowOriginOrigText = {
+    setLineGeo: setOrigLineGeo,
+    fitLines: applyOrigLineFit,
+    trimLine: origTrimLine,
+    renderHlLine: renderOrigHlLine,
+    // 译文页高亮和左栏共用一个 store.originalHl，靠 side 区分（老数据没有 side = 原文侧）
+    hlSegsFor: (page, side) =>
+      (store.originalHl || []).filter(
+        (h) => h.page === page && ((side === "ps") === (h.side === "ps"))
+      ),
+    // 跨栏联动：在**左栏**画对面选中的那几行对应的行（行号 = 本页 text_layer 索引）
+    showLink: (start, end) => showOrigLink(start, end),
+  };
+
+  // —— 跨栏联动高亮（左栏这一侧）——
+  // 逻辑全部在 pdf-spread-ui.js：它监听选区、去问 /link，再把结果推到这里来画。
+  // 这里只负责「按行号在页图上贴几条同色底」，几何与文字层同一套（scale 一致）。
+  let origLinkRange = null;
+  function showOrigLink(start, end) {
+    const ok = Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end >= start;
+    origLinkRange = ok ? [start, end] : null;
+    paintOrigLink();
+  }
+  function paintOrigLink() {
+    const wrap = el("lit-reader-body")?.querySelector("[data-orig-wrap]");
+    const layer = wrap && wrap.querySelector("[data-orig-link]");
+    if (!layer) return;
+    layer.innerHTML = "";
+    if (!origLinkRange) return;
+    const img = wrap.querySelector("[data-orig-img]");
+    const pmeta = originalMetaForPage(store.originalPage);
+    if (!img || !img.clientWidth) return;
+    const pageW = (pmeta && pmeta.w) || img.naturalWidth || 612;
+    const scale = img.clientWidth / pageW;
+    const lines = (pmeta && pmeta.text_layer) || [];
+    for (let i = origLinkRange[0]; i <= origLinkRange[1]; i++) {
+      const bb = lines[i] && lines[i].bbox;
+      if (!bb || bb.length !== 4) continue;
+      const d = document.createElement("div");
+      d.className = "orig-link-box";
+      d.style.left = (bb[0] * scale) + "px";
+      d.style.top = (bb[1] * scale) + "px";
+      d.style.width = (Math.max(4, bb[2] - bb[0]) * scale) + "px";
+      d.style.height = (Math.max(6, bb[3] - bb[1]) * scale) + "px";
+      layer.appendChild(d);
+    }
+  }
+
+  // —— 抓手模式：左键拖拽平移（放大后竖直/水平滚页面，不用去够窄滚动条）——
+  // 为什么必须是「开关」而不是纯 CSS cursor:grab：原页上的左键拖拽已经被
+  // 划词框选占用（见 onReaderMouseup 的选区逻辑）。直接在页图上改光标会让
+  // 用户以为能拖、结果拖出来一个高亮框。所以走显式模式切换，两者互斥。
+  // 原页（.orig-stage）与译文页（.ps-body，pdf-spread-ui.js 那栏）是两个独立
+  // 滚动容器，都要能拖 —— 用一组选择器统一处理，见 origPanScrollables()。
+  const GRAB_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11.5V7.5a1.6 1.6 0 0 1 3.2 0V11"/><path d="M9.2 11V5.6a1.6 1.6 0 0 1 3.2 0V11"/><path d="M12.4 11V6.6a1.6 1.6 0 0 1 3.2 0V12"/><path d="M15.6 12V9.6a1.6 1.6 0 0 1 3.2 0v5.6c0 3.4-2.3 5.8-5.6 5.8-2.5 0-4-1-5.3-2.6l-2.3-2.9a1.7 1.7 0 0 1 2.6-2.1L9.6 15"/></svg>`;
+
+  // 抓手模式下可平移的容器：就是 .orig-pan-canvas ——
+  // 原页（.orig-stage）与译文栏（.pdf-spread-pane）都是它的直接子项，
+  // 共用同一个 scrollLeft/scrollTop，所以拖任意一边，左右必然一起走。
+  function origPanScrollables() {
+    const body = el("lit-reader-body");
+    if (!body) return [];
+    const canvas = body.querySelector("[data-orig-canvas]");
+    return canvas ? [canvas] : [];
+  }
+
+  function syncOrigGrab() {
+    const body = el("lit-reader-body");
+    const btn = body?.querySelector('[data-orig="grab"]');
+    const on = !!store.originalGrab;
+    for (const sc of origPanScrollables()) sc.classList.toggle("is-grab", on);
+    if (btn) {
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      // 按钮只剩图标（文案挪进 title/aria-label），所以 title 要随状态变，别让它变成哑按钮
+      const label = on
+        ? "抓手模式已开启：按住左键拖动页面（再点一次回到划词）"
+        : "抓手模式：开启后按住左键拖动页面";
+      btn.title = label;
+      btn.setAttribute("aria-label", label);
+    }
+  }
+
+  // 在若干个滚动容器上做一次性委托：只在抓手模式生效，其余情况原样让给划词/热区点击。
+  function initOrigPan(targets) {
+    for (const sc of targets) {
+      if (!sc || sc.dataset.panBound) continue;
+      sc.dataset.panBound = "1";
+      let panning = false, moved = false, sx = 0, sy = 0, sl = 0, st = 0;
+      sc.addEventListener("mousedown", (ev) => {
+        if (!store.originalGrab || ev.button !== 0) return;
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.target.isContentEditable) return;
+        panning = true; moved = false;
+        sx = ev.clientX; sy = ev.clientY;
+        sl = sc.scrollLeft; st = sc.scrollTop;
+        sc.classList.add("is-panning");
+        ev.preventDefault();  // 关键：同时挡掉划词选区的起点
+        ev.stopPropagation();
+      });
+      // 挂在 window 上：拖出容器之外松手也不会卡在 is-panning
+      window.addEventListener("mousemove", (ev) => {
+        if (!panning) return;
+        const dx = ev.clientX - sx, dy = ev.clientY - sy;
+        if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;  // 3px 死区，避免误吞点击
+        moved = true;
+        sc.scrollLeft = sl - dx;
+        sc.scrollTop = st - dy;
+      });
+      const end = (ev) => {
+        if (!panning) return;
+        panning = false;
+        sc.classList.remove("is-panning");
+        // 拖过就不算点击：吞掉紧随其后的 click，免得拖完顺手在图/公式上弹出放大查看器
+        if (moved && ev && typeof ev.stopPropagation === "function") {
+          sc.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); }, { capture: true, once: true });
+        }
+      };
+      window.addEventListener("mouseup", (ev) => end(ev));
+      window.addEventListener("mouseleave", () => end(null));
+    }
+  }
+
+  // 同上，只是重算可平移容器集合（译文栏是后面才注入的，渲染时要再补一次）
+  function refreshOrigPanTargets() {
+    syncOrigGrab();
+    initOrigPan(origPanScrollables());
   }
 
   function updateOrigPageLabel() {
@@ -4049,12 +4769,20 @@
       body.innerHTML = `<p class="sr-list-empty">还没有高亮。选中正文文字后点击「高亮」即可划词高亮。</p>`;
       return;
     }
-    body.innerHTML = list.map((h) => `
+    body.innerHTML = list.map((h) => {
+      // 译文页高亮（整页对照右栏）：正文是中文，拿去原文页「定位」只会白跑，去掉那个按钮，
+      // 改用一个「译文」小标签说明它属于哪一栏。
+      const ps = h.side === "ps";
+      const locate = ps
+        ? `<span class="sr-hl-tag">译文</span>`
+        : `<button class="sr-msg-copy" type="button" data-lit-action="locate-highlight" data-id="${esc(h.id)}">定位</button>`;
+      return `
       <div class="sr-list-item">
-        <button class="sr-msg-copy" type="button" data-lit-action="locate-highlight" data-id="${esc(h.id)}">定位</button>
+        ${locate}
         <span class="sr-list-sub">${esc(h.text)}</span>
         <button class="sr-msg-copy" type="button" data-lit-action="remove-highlight" data-id="${esc(h.id)}">删除</button>
-      </div>`).join("");
+      </div>`;
+    }).join("");
   }
 
   // —— 划词笔记 ——
@@ -4249,6 +4977,157 @@
     return html;
   }
 
+  // —— 相关原文定位（提问 → 原文段落 + 相对置信度）——
+  // 后端 /evidence 返回按原文顺序排好的候选段（page 0 基、bbox 是 PDF 点、confidence 0~100）。
+  // 这里只做三件事：按阈值筛、按排序方式排、点一条跳过去。
+  // 「相对置信度」是本次提问内部的相对名次折算，不是概率 —— 界面上别写成「准确率」。
+  function evidenceVisible() {
+    const threshold = Number(store.evThreshold) || 0;
+    const list = (store.evUnits || []).filter((it) => Number(it.confidence) >= threshold);
+    if (store.evSort === "relevance") {
+      return [...list].sort(
+        (a, b) => Number(b.confidence) - Number(a.confidence)
+          || String(a.id).localeCompare(String(b.id))
+      );
+    }
+    return [...list].sort(
+      (a, b) => Number(a.page) - Number(b.page)
+        || (Number(a.bbox?.[1]) || 0) - (Number(b.bbox?.[1]) || 0)
+    );
+  }
+
+  function renderEvidence() {
+    const box = el("lit-evidence");
+    const listEl = el("lit-ev-list");
+    const countEl = el("lit-ev-count");
+    if (!box || !listEl) return;
+    // 没提问过（或没选中文献）就整块收起，不占问答区的纵向空间
+    const active = Boolean(store.detail && store.evQuery);
+    box.hidden = !active;
+    if (!active) { listEl.innerHTML = ""; if (countEl) countEl.textContent = "—"; return; }
+    if (store.evBusy) {
+      if (countEl) countEl.textContent = "定位中…";
+      listEl.innerHTML = `<p class="lit-ev-hint">正在原文里找最相关的段落…</p>`;
+      return;
+    }
+    if (store.evReason === "error") {
+      if (countEl) countEl.textContent = "失败";
+      listEl.innerHTML = `<p class="lit-ev-hint lit-ev-hint-error">${esc(store.evError || "定位失败，可重新提问。")}</p>`;
+      return;
+    }
+    if (store.evReason === "scanned") {
+      if (countEl) countEl.textContent = "—";
+      listEl.innerHTML = `<p class="lit-ev-hint">这篇 PDF 没有文字层（扫描件），暂时无法按页定位原文。</p>`;
+      return;
+    }
+    if (store.evReason === "no_text" || !store.evUnits.length) {
+      if (countEl) countEl.textContent = "0 处";
+      listEl.innerHTML = `<p class="lit-ev-hint">没有从原文里切出可用段落。</p>`;
+      return;
+    }
+    const visible = evidenceVisible();
+    if (countEl) {
+      // 侧栏窄，时间也塞进同一个数字里（「2/5 处 · 3.4 秒」），不另起一行
+      const secs = store.evElapsed ? ` · ${(store.evElapsed / 1000).toFixed(1)} 秒` : "";
+      countEl.textContent = `${visible.length}/${store.evUnits.length} 处${secs}`;
+    }
+    if (!visible.length) {
+      listEl.innerHTML = `<p class="lit-ev-hint">当前阈值下没有内容，向左拖动滑块放宽一点。</p>`;
+      return;
+    }
+    listEl.innerHTML = visible.slice(0, store.evShown).map((it) => {
+      const conf = Number(it.confidence) || 0;
+      // 连续黄色深浅：α 跟着置信度走，100% 最重。与视频里那列结果的读法一致。
+      const alpha = (8 + 34 * (conf / 100)).toFixed(1);
+      const selected = store.evSelected === it.id ? " is-selected" : "";
+      return `<button type="button" class="lit-ev-item${selected}" data-ev-id="${esc(it.id)}"
+        style="--ev-a:${alpha}%" title="点击跳到原页第 ${Number(it.page) + 1} 页">
+        <span class="lit-ev-meta">
+          <span class="lit-ev-conf">相对置信度 ${conf}%</span>
+          <span class="lit-ev-page">第 ${Number(it.page) + 1} 页</span>
+        </span>
+        <span class="lit-ev-text">${esc(String(it.text || "").slice(0, 260))}</span>
+      </button>`;
+    }).join("") + (visible.length > store.evShown
+      ? `<p class="lit-ev-hint">还有 ${visible.length - store.evShown} 条，调高阈值或换排序看看。</p>`
+      : "");
+  }
+
+  // 提问时并行发起定位：答案不等它，它也不等答案（见 askQuestion）。
+  async function runEvidence(question) {
+    const q = String(question || "").trim();
+    if (!q || !store.currentId) return;
+    // 没有保留原 PDF 就没有页码与坐标，定位无从谈起 —— 静默跳过，别在问答区插一条报错
+    if (!originalSourceId()) return;
+    store.evQuery = q;
+    store.evUnits = [];
+    store.evSelected = null;
+    store.evElapsed = 0;
+    store.evReason = "";
+    store.evError = "";
+    store.evBusy = true;
+    store.evAutoJumped = "";
+    renderEvidence();
+    try {
+      const res = await window.api(`/api/literature/${encodeURIComponent(store.currentId)}/evidence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      if (store.evQuery !== q) return; // 已经问了别的问题，这份结果作废
+      store.evUnits = Array.isArray(res.units) ? res.units : [];
+      store.evElapsed = Number(res.elapsed_ms) || 0;
+      store.evReason = res.reason || "";
+      store.evBusy = false;
+      renderEvidence();
+      // 原页阅读中才自动跳到最强证据：文理模式硬切原页会把阅读位置整个掀掉，
+      // 那种情况下只在列表里标出来，点一下再跳。
+      if (store.readMode === "original" && store.evAutoJumped !== q) {
+        const best = evidenceVisible()[0];
+        if (best && Number(best.confidence) > 0) {
+          store.evAutoJumped = q;
+          locateEvidence(best);
+        }
+      }
+    } catch (error) {
+      if (store.evQuery !== q) return;
+      store.evBusy = false;
+      store.evReason = "error";
+      store.evError = error && error.message ? error.message : "定位失败";
+      renderEvidence();
+    }
+  }
+
+  function locateEvidence(item) {
+    if (!item) return;
+    store.evSelected = item.id;
+    renderEvidence();
+    const page = Number(item.page);
+    const bbox = Array.isArray(item.bbox) && item.bbox.length === 4 ? item.bbox : null;
+    const needle = bbox ? null : String(item.text || "").slice(0, 24);
+    if (store.readMode === "original" && originalSourceId()) {
+      if (goToOrigPage(page, bbox, needle)) return;
+    }
+    // 文理（翻译）视图里：按段落模糊匹配跳过去，不硬切回原页
+    const target = String(item.text || "").slice(0, 80);
+    if (target && !locateParagraph(target)) {
+      if (store.readMode !== "original") { store.readMode = "original"; renderReader(); }
+      goToOrigPage(page, bbox, needle);
+    }
+  }
+
+  function clearEvidence() {
+    store.evQuery = "";
+    store.evUnits = [];
+    store.evSelected = null;
+    store.evElapsed = 0;
+    store.evReason = "";
+    store.evError = "";
+    store.evBusy = false;
+    store.evAutoJumped = "";
+    renderEvidence();
+  }
+
   function renderQA() {
     const box = el("lit-qa-messages");
     renderQASelection();
@@ -4318,6 +5197,10 @@
     renderQA();
     const input = el("lit-qa-input");
     if (input) input.value = "";
+    // 定位与问答并行：答案和「相关原文」各自回来各自渲染，互不等待。
+    // 用 q（而不是带选区上下文的 finalQ）作为检索词 —— 选区是给作答用的，
+    // 把它塞进打分问题会让模型围着选区转，反而找不到全文里最强的证据。
+    runEvidence(q);
     try {
       const res = await window.api(`/api/literature/${encodeURIComponent(store.currentId)}/ask`, {
         method: "POST",
@@ -4470,8 +5353,11 @@
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     tip.__clampToView = () => {
       const w = tip.offsetWidth || 0, h = tip.offsetHeight || 0;
-      tip.style.left = clamp(parseFloat(tip.style.left) || 0, 8, Math.max(8, window.innerWidth - w - 8)) + "px";
-      tip.style.top = clamp(parseFloat(tip.style.top) || 0, 8, Math.max(8, window.innerHeight - h - 8)) + "px";
+      // style.left/top 是设计像素，window.innerWidth 是视觉像素：先除回界面缩放。
+      const s = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      const vw = window.innerWidth / s, vh = window.innerHeight / s;
+      tip.style.left = clamp(parseFloat(tip.style.left) || 0, 8, Math.max(8, vw - w - 8)) + "px";
+      tip.style.top = clamp(parseFloat(tip.style.top) || 0, 8, Math.max(8, vh - h - 8)) + "px";
     };
     tip.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
@@ -4481,6 +5367,9 @@
       if (!inGrip && !(row && !onControl)) return;
       e.preventDefault();
       const startX = e.clientX, startY = e.clientY;
+      // tip.style.left/top 与 offsetWidth 是设计像素，指针位移与 window.innerWidth 是视觉像素。
+      const scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      const viewW = window.innerWidth / scale, viewH = window.innerHeight / scale;
       const left0 = parseInt(tip.style.left || "0", 10) || 0;
       const top0 = parseInt(tip.style.top || "0", 10) || 0;
       let moved = false;
@@ -4488,8 +5377,8 @@
         if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 3) return;
         if (!moved) { moved = true; tip.classList.add("dragging"); }
         const w = tip.offsetWidth || 0, h = tip.offsetHeight || 0;
-        tip.style.left = clamp(left0 + ev.clientX - startX, 8, Math.max(8, window.innerWidth - w - 8)) + "px";
-        tip.style.top = clamp(top0 + ev.clientY - startY, 8, Math.max(8, window.innerHeight - h - 8)) + "px";
+        tip.style.left = clamp(left0 + (ev.clientX - startX) / scale, 8, Math.max(8, viewW - w - 8)) + "px";
+        tip.style.top = clamp(top0 + (ev.clientY - startY) / scale, 8, Math.max(8, viewH - h - 8)) + "px";
       };
       const onUp = () => {
         if (moved) tip.classList.add("sr-tip-moved");
@@ -4533,13 +5422,22 @@
     renderReader();
     if (body) body.scrollTop = top;
   }
-  function addHighlightSelection(text, para) {
-    // 原页模式：解析选区字符区间，就地精确高亮，不切回文理视图
+  function addHighlightSelection(text, para, side) {
+    // 原页模式：解析选区字符区间，就地精确高亮，不切回文理视图。
+    // side="ps" 表示选区在整页对照的**译文页**上 —— 同一套存储，靠 side 区分是哪一栏；
+    // 两栏行号口径不同（见 origResolveSelection 的注释），绝不能混用。
     if (store.readMode === "original") {
-      const segs = origResolveSelection();
+      const psSide = side === "ps";
+      const segs = origResolveSelection(psSide ? "[data-ps-tl]" : "[data-orig-tl]");
       if (!segs.length) return;
       origHlCommit();
-      store.originalHl.push({ id: "ohl-" + Date.now() + "-" + (store.originalHl.length), page: store.originalPage, text, segs });
+      store.originalHl.push({
+        id: "ohl-" + Date.now() + "-" + (store.originalHl.length),
+        page: store.originalPage,
+        side: psSide ? "ps" : "orig",
+        text,
+        segs,
+      });
       origHlRefreshUI();
       persistOriginalHighlights();
       renderHighlights();
@@ -4554,11 +5452,13 @@
 
   // 把浏览器选区解析为文本层各行内精确字符区间 [[line, s, e], ...]
   // 直接基于 selection 的 anchor/focus 文本节点定位行，不做几何兜底遍历。
-  function origResolveSelection() {
+  // rootSel 指定解析哪一层：左栏 [data-orig-tl]，整页对照的译文页 [data-ps-tl]。
+  // 两层行号口径不同（左=原件 PDF 的 text_layer，右=dual PDF 译文页），各自成索引。
+  function origResolveSelection(rootSel = "[data-orig-tl]") {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return [];
     const range = sel.getRangeAt(0);
-    const tlEl = document.querySelector("[data-orig-tl]");
+    const tlEl = document.querySelector(rootSel);
     if (!tlEl || !tlEl.contains(range.commonAncestorContainer)) return [];
     // anchor/focus 若为文本节点，取其父行 span；若为元素，取其最近行 span
     const lineOf = (node) => {
@@ -4658,8 +5558,11 @@
     return true;
   }
   // 原页模式：找出当前选中文字命中的高亮（优先精确匹配，其次取覆盖该选区的最小高亮）
-  function pickOriginalHighlight(segs) {
-    const list = store.originalHl || [];
+  // side 过滤：原来的高亮没有 side 字段（默认算原文侧）；译文页高亮带 side="ps"。
+  // 不过滤的话，在译文页选中文字会误命中原文侧那条区间相同的高亮。
+  function pickOriginalHighlight(segs, side) {
+    const want = side === "ps" ? "ps" : "orig";
+    const list = (store.originalHl || []).filter((h) => (h.side === "ps" ? "ps" : "orig") === want);
     if (!segs || !segs.length) return null;
     const page = store.originalPage;
     const exact = list.find((h) => h.page === page && hlSegsEqual(h.segs, segs));
@@ -4669,17 +5572,22 @@
       .sort((a, b) => hlSegsSpan(a) - hlSegsSpan(b))[0]) || null;
   }
 
-  function renderSelectionTip(rect, text, paraIndex) {
+  // side: "orig"（左栏原文文本层，默认） / "ps"（整页对照右栏译文页文本层）
+  function renderSelectionTip(rect, text, paraIndex, side) {
     const tip = ensureSelectionTip();
     // 原页模式：识别当前选中是否命中已有高亮，供「撤销该高亮」使用
     const origMode = store.readMode === "original";
-    const selSegs = origMode ? origResolveSelection() : [];
-    const targetHl = origMode ? pickOriginalHighlight(selSegs) : null;
-    const showTranslate = origMode || looksEnglish(text);
+    const psSide = side === "ps";
+    const layerSel = psSide ? "[data-ps-tl]" : "[data-orig-tl]";
+    const selSegs = origMode ? origResolveSelection(layerSel) : [];
+    const targetHl = origMode ? pickOriginalHighlight(selSegs, psSide ? "ps" : "orig") : null;
+    // 译文页选中的是中文：没什么可翻译的，取消「翻译」按钮（looksEnglish 对中文本来就是 false）
+    const showTranslate = psSide ? looksEnglish(text) : origMode || looksEnglish(text);
     const canUndoHl = !!(targetHl || origHlHistory.length);
-    // 原页文本选中：由命中的文本行 bbox 汇总成定位区域，供「选中」chip 精准跳转
+    // 原页文本选中：由命中的文本行 bbox 汇总成定位区域，供「选中」chip 精准跳转。
+    // 译文页不做这个：它的 bbox 属于**译文页**坐标系，拿去定位原文页只会指错地方。
     let origLoc = null;
-    if (origMode && selSegs.length) {
+    if (origMode && !psSide && selSegs.length) {
       const plines = (originalMetaForPage(store.originalPage) || {}).text_layer || [];
       let bb = null;
       for (const seg of selSegs) {
@@ -4716,7 +5624,9 @@
       tip.__clampToView();
     } else {
       const tipW = tip.offsetWidth || 420;
-      tip.style.left = Math.max(8, Math.min(rect.left + rect.width / 2 - tipW / 2, window.innerWidth - tipW - 8)) + "px";
+      // 钳制边界与 style.left 同为设计像素：window.innerWidth 是视觉像素，先除回界面缩放。
+      const sc = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      tip.style.left = Math.max(8, Math.min(rect.left + rect.width / 2 - tipW / 2, window.innerWidth / sc - tipW - 8)) + "px";
       tip.style.top = (rect.top - 54 > 8 ? rect.top - 54 : rect.bottom + 10) + "px";
     }
 
@@ -4728,7 +5638,7 @@
     };
 
     tip.querySelector('[data-tip-action="highlight"]').addEventListener("click", () => {
-      addHighlightSelection(text, paraIndex);
+      addHighlightSelection(text, paraIndex, psSide ? "ps" : "orig");
       tip.classList.add("hidden");
     });
 
@@ -4968,7 +5878,8 @@
       <div class="sr-tip-result" hidden></div>
       <button class="sr-tip-close" type="button" aria-label="关闭">×</button>`;
     tip.classList.remove("hidden");
-    tip.style.left = Math.max(8, Math.min(rect.left + rect.width / 2 - 70, window.innerWidth - 240)) + "px";
+    const scT = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+    tip.style.left = Math.max(8, Math.min(rect.left + rect.width / 2 - 70, window.innerWidth / scT - 240)) + "px";
     tip.style.top = (rect.top - 54 > 8 ? rect.top - 54 : rect.bottom + 10) + "px";
 
     tip.querySelector('[data-tip-action="highlight"]').addEventListener("click", () => {
@@ -5036,7 +5947,9 @@
       tip.__clampToView();
     } else {
       const mw = tip.offsetWidth || 320;
-      tip.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - mw - 8)) + "px";
+      // 设计像素钳制：window.innerWidth 是视觉像素，除回界面缩放（见 koUiScale 说明）
+      const scM = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      tip.style.left = Math.max(8, Math.min(rect.left, window.innerWidth / scM - mw - 8)) + "px";
       tip.style.top = (rect.top - 76 > 8 ? rect.top - 76 : rect.bottom + 10) + "px";
     }
     tip.querySelector('[data-mark-action="locate"]').addEventListener("click", () => {
@@ -5079,7 +5992,9 @@
       tip.__clampToView();
     } else {
       const mw = tip.offsetWidth || 320;
-      tip.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - mw - 8)) + "px";
+      // 设计像素钳制：window.innerWidth 是视觉像素，除回界面缩放（见 koUiScale 说明）
+      const scM = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      tip.style.left = Math.max(8, Math.min(rect.left, window.innerWidth / scM - mw - 8)) + "px";
       tip.style.top = (rect.top - 76 > 8 ? rect.top - 76 : rect.bottom + 10) + "px";
     }
     tip.querySelector('[data-mark-action="remove-aihl"]').addEventListener("click", () => {
@@ -5110,6 +6025,22 @@
       hideSelectionTip();
       return;
     }
+    // 整页对照的译文页：那是**另一层**文本层（.ps-tl-line，pdf-spread-ui.js 叠上去的），
+    // 没有 [data-paragraph]，不特判的话会直接走到下面 hideSelectionTip 静默吞掉。
+    // 判 anchor/focus 而不是 commonAncestorContainer：跨行选中时公共祖先会退化成整个层。
+    const nodeEl = (n) => (n && n.nodeType === 1 ? n : n && n.parentElement);
+    const psSpan = nodeEl(sel.anchorNode)?.closest?.(".ps-tl-line")
+      || nodeEl(sel.focusNode)?.closest?.(".ps-tl-line");
+    if (psSpan) {
+      const psLine = Number(psSpan.dataset.line);
+      if (store.highlightMode) {
+        addHighlightSelection(text, psLine, "ps");
+        hideSelectionTip();
+        return;
+      }
+      renderSelectionTip(range.getBoundingClientRect(), text, psLine, "ps");
+      return;
+    }
     const paraNode = range.commonAncestorContainer.nodeType === 1
       ? range.commonAncestorContainer.closest("[data-paragraph]")
       : range.commonAncestorContainer.parentElement?.closest("[data-paragraph]");
@@ -5117,12 +6048,12 @@
     const paraIndex = Number(paraNode.dataset.paraIndex);
 
     if (store.highlightMode) {
-      addHighlightSelection(text, paraIndex);
+      addHighlightSelection(text, paraIndex, "orig");
       hideSelectionTip();
       return;
     }
 
-    renderSelectionTip(range.getBoundingClientRect(), text, paraIndex);
+    renderSelectionTip(range.getBoundingClientRect(), text, paraIndex, "orig");
   }
 
   // —— 元数据对话框 ——
@@ -5487,7 +6418,9 @@
   // 上限同时受侧栏自身封顶与「原文区至少 READER_MIN」两条约束；容器量不到时只按封顶。
   function asideWidthMax() {
     const aside = $s(".sr-aside");
-    const available = aside && aside.parentElement ? aside.parentElement.getBoundingClientRect().width : 0;
+    // rect 是视觉像素、宽度上下限是设计像素：先除回设计像素（界面整体缩放时）。
+    const scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+    const available = aside && aside.parentElement ? aside.parentElement.getBoundingClientRect().width / scale : 0;
     return available > 0
       ? Math.max(ASIDE_MIN, Math.min(ASIDE_MAX, available - READER_MIN))
       : ASIDE_MAX;
@@ -5531,7 +6464,9 @@
       if (e.button !== 0) return;
       e.preventDefault();
       const startX = e.clientX;
-      const startW = aside.getBoundingClientRect().width;
+      // rect 是视觉像素、--sr-aside-w 是设计像素：起点宽度与位移都除回设计像素。
+      const uiScale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      const startW = aside.getBoundingClientRect().width / uiScale;
       handle.classList.add("is-active");
       document.body.classList.add("is-aside-resizing");
       // 目标宽度（意图值）。落盘必须用它，不能拿 getBoundingClientRect()：
@@ -5542,7 +6477,7 @@
       const move = (m) => {
         if (m.pointerId !== e.pointerId) return;
         // 拖动过程中只改宽度：不落盘、不广播（每秒几十次，没必要）
-        target = clampAsideWidth(startW + (m.clientX - startX));
+        target = clampAsideWidth(startW + (m.clientX - startX) / uiScale);
         applyAsideWidth(target);
       };
       const finish = () => {
@@ -5598,13 +6533,15 @@
       if (e.button !== 0) return;
       e.preventDefault();
       const startX = e.clientX;
-      const startW = panel.getBoundingClientRect().width;
+      // rect 是视觉像素、--orig-trans-w 是设计像素：起点宽度、位移、可用宽度都除回设计像素。
+      const uiScale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+      const startW = panel.getBoundingClientRect().width / uiScale;
       handle.classList.add("is-active");
       document.body.classList.add("is-trans-resizing");
       const move = (m) => {
         if (m.pointerId !== e.pointerId) return;
-        const available = body.getBoundingClientRect().width;
-        applyOrigTransWidth(clampTransW(startW - (m.clientX - startX), available));
+        const available = body.getBoundingClientRect().width / uiScale;
+        applyOrigTransWidth(clampTransW(startW - (m.clientX - startX) / uiScale, available));
       };
       const finish = () => {
         window.removeEventListener("pointermove", move);
@@ -5646,6 +6583,7 @@
 
     // 顶栏
     bind("#lit-library-toggle", "click", () => showLibraryPanel(!store.showingLibrary));
+    bind("#lit-aside-collapse", "click", toggleAsideCollapsed);
     bind("#lit-info-button", "click", openMetaDialog);
     bind("#lit-translate-all-button", "click", toggleAutoTrans);
     bind("#lit-view-toggle", "click", () => {
@@ -5664,6 +6602,31 @@
     // 标签
     $$s(".sr-tab").forEach((t) => t.addEventListener("click", () => switchTab(t.dataset.tab)));
 
+    // 相关原文：筛选 / 排序 / 清空 / 点条目跳原文。
+    // 只有「点条目」走事件委托（列表每次筛选都重绘），下拉与滑块是 index.html 里的
+    // 固定节点、不参与重绘，所以直接绑一次。
+    const evList = el("lit-ev-list");
+    if (evList) {
+      evList.addEventListener("click", (e) => {
+        const item = e.target.closest("[data-ev-id]");
+        if (!item) return;
+        const found = (store.evUnits || []).find((it) => String(it.id) === item.dataset.evId);
+        if (found) locateEvidence(found);
+      });
+    }
+    bind("#lit-ev-sort", "change", (e) => {
+      store.evSort = e.target.value === "relevance" ? "relevance" : "document";
+      renderEvidence();
+    });
+    bind("#lit-ev-threshold", "input", (e) => {
+      store.evThreshold = Number(e.target.value) || 0;
+      const label = el("lit-ev-threshold-value");
+      if (label) label.textContent = `${store.evThreshold}%`;
+      store.evSelected = null;
+      renderEvidence();
+    });
+    bind("#lit-ev-clear", "click", clearEvidence);
+
     // 文献库列表
     el("lit-list").addEventListener("click", (e) => {
       const target = e.target.closest("[data-lit-action]");
@@ -5673,6 +6636,7 @@
       if (action === "select") selectLiterature(id);
       else if (action === "toggle-compare") toggleCompare(id);
       else if (action === "delete") openLitDeleteDialog(id);
+      else if (action === "overview") openOverview(id);
     });
 
     // 阅读区：段落翻译按钮 / 高亮标记点击
@@ -5693,8 +6657,8 @@
         if (!base) return;
         const readerBody = el("lit-reader-body");
         if (readerBody) {
-          const stage = readerBody.querySelector("[data-orig-stage]");
-          (stage || readerBody).scrollTop = 0;
+          const sc = readerBody.querySelector("[data-orig-canvas]") || readerBody.querySelector("[data-orig-stage]");
+          (sc || readerBody).scrollTop = 0;
         }
         if (_origAbort) _origAbort.abort();
         _origAbort = new AbortController();
@@ -5703,6 +6667,9 @@
 
       if (act === "prev") { if (store.originalPage > 0) { store.originalPage--; refireOrig(); } }
       else if (act === "next") { if (store.originalPage < nOrigPages() - 1) { store.originalPage++; refireOrig(); } }
+      else if (act === "zoom-in") setOrigZoom(store.originalZoom + 0.25);
+      else if (act === "zoom-out") setOrigZoom(store.originalZoom - 0.25);
+      else if (act === "grab") { store.originalGrab = !store.originalGrab; syncOrigGrab(); }
       else if (act === "todot") { store.readMode = "text"; renderReader(); }
       else if (act === "undo-hl") origHlUndo();
       else if (act === "redo-hl") origHlRedoRun();
@@ -5869,6 +6836,56 @@
     if (pasteBtn) pasteBtn.addEventListener("click", openPasteDialog);
     el("lit-paste-form").addEventListener("submit", submitPaste);
     el("lit-search").addEventListener("input", (e) => { store.search = e.target.value; renderLibrary(); });
+
+    // 文献库左栏：筛选 / 排序胶囊（纯本地过滤，组内单选）
+    $$s("[data-lit-filter]").forEach((group) => {
+      group.addEventListener("click", (e) => {
+        const chip = e.target.closest(".lit-rail-chip");
+        if (!chip) return;
+        const field = group.dataset.litFilter;
+        const value = chip.dataset.value;
+        if (field === "status") store.filterStatus = value;
+        else if (field === "meta") store.filterMeta = value;
+        else if (field === "sort") store.sortKey = value;
+        syncLibraryFilters();
+        renderLibrary();
+      });
+    });
+    syncLibraryFilters();
+
+    // 文献库页签：快速筛选，与左栏胶囊共用同一份状态（两边互相回写）
+    $$s("[data-lit-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.litTab;
+        store.filterStatus = (key === "reading" || key === "done") ? key : "all";
+        store.filterMeta = key === "pending" ? "pending" : "all";
+        syncLibraryFilters();
+        renderLibrary();
+      });
+    });
+
+    // 我的合集：点一下按该标签过滤（复用搜索框 —— 标签本就是可搜索字段）
+    el("lit-collections")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-lit-tag]");
+      if (!btn) return;
+      const tag = btn.dataset.litTag;
+      store.search = store.search.trim() === tag ? "" : tag;
+      const searchEl = el("lit-search");
+      if (searchEl) searchEl.value = store.search;
+      renderLibrary();
+    });
+
+    bind("#lit-rail-compare", "click", () => openCompareDialog());
+    el("lit-overview-dialog")?.addEventListener("click", onOverviewAction);
+
+    // 概念图谱面板（lit-compare-view.js 注入，挂在 .sr-reader 内）开关时，
+    // 把 .sr-layout 的 is-library 同步回来。只观察 DOM，不改那个模块。
+    const readerCol = $s(".sr-reader");
+    if (readerCol) {
+      new MutationObserver(syncLibraryLayout).observe(readerCol, {
+        attributes: true, subtree: true, attributeFilter: ["class"],
+      });
+    }
     el("lit-reader-body").addEventListener("scroll", saveScrollPosition);
     el("lit-compare-button").addEventListener("click", openCompareDialog);
     el("lit-compare-clear")?.addEventListener("click", () => {
@@ -5887,7 +6904,9 @@
   if (window.KnowOriginTheme?.apply) window.KnowOriginTheme.apply(window.KnowOriginTheme.current());
   const savedFont = Number(localStorage.getItem(FONT_KEY));
   if (Number.isFinite(savedFont) && savedFont >= 12 && savedFont <= 22) store.fontsize = savedFont;
+  try { store.asideCollapsed = localStorage.getItem(ASIDE_COLLAPSE_KEY) === "1"; } catch (_) {}
   initEvents();
+  applyAsideCollapsed();
   // 顶栏「文献库」按钮的 title / 徽标先按当前状态落一次（首屏 0 篇 → 徽标藏起来）。
   // 之后每次列表变动都由 renderLibrary()、每次开合库面板都由 showLibraryPanel() 同步。
   syncLibraryToggleLabel();

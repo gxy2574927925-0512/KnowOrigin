@@ -55,6 +55,32 @@ class TranslateRequest(BaseModel):
     segment_id: str | None = Field(default=None, max_length=80)
 
 
+class TranslatePdfRequest(BaseModel):
+    """版式保真全文翻译请求。
+
+    pages 形如 "1-10" / "1,3,5"，留空翻整本（30 页约 30+ 分钟，慎点）。
+    """
+
+    source_id: str | None = Field(default=None, max_length=80)
+    pages: str | None = Field(default=None, max_length=120)
+    force: bool = False
+
+
+class LinkSpreadRequest(BaseModel):
+    """整页对照里「这一栏选中的文字，对面那栏对应哪几行」的定位请求。
+
+    side 指用户**选中**的那一侧（left=原文页 / right=译文页），
+    start/end 是该侧文本层行号（闭区间），与 /spread、/pages 返回的行序一致。
+    """
+
+    source_id: str | None = Field(default=None, max_length=80)
+    pages: str | None = Field(default=None, max_length=120)
+    index: int = Field(default=0, ge=0, le=100000)
+    side: str = Field(default="left", max_length=8)
+    start: int = Field(default=0, ge=0, le=100000)
+    end: int = Field(default=0, ge=0, le=100000)
+
+
 class AskRequest(BaseModel):
     question: str | None = Field(default=None, min_length=1, max_length=2000)
 

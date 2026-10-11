@@ -56,16 +56,17 @@
 | --- | --- | --- |
 | `core/database.py` | 3130 | `Database` 类，封装全部 SQLite 访问；表结构、用户/项目/来源/节点/卡片/测验 CRUD；掌握度事件写入；撤销快照（`undo_history`）；异常 `UserNotFound` / `UserAlreadyExists` / `ProjectNotFound` / `NodeNotFound` / `SourceNotFound` / `FavoriteNotFound` |
 | `core/framework.py` | 1761 | 知识框架与掌握度：`build_framework` 由资料生成节点树；`record_evidence` 写入学习事件；`mastery_evidence_rules` 与 `compute_mastery_breakdown` 给出可解释掌握度；`generate_fallback_cards` / `generate_fallback_quiz` 模型失败时的本地兜底 |
-| `core/llm.py` | 2323 | `LlmClient` 统一模型调用：OpenAI 兼容、SSE 流式、Function Calling、JSON 强约束；`_StreamRepetitionGuard` 流式重复检测与裁剪；异常 `ModelApiError` / `ModelOutputError` |
+| `core/llm.py` | 2472 | `LlmClient` 统一模型调用：OpenAI 兼容、SSE 流式、Function Calling、JSON 强约束；`_StreamRepetitionGuard` 流式重复检测与裁剪；异常 `ModelApiError` / `ModelOutputError` |
 | `core/parsers.py` | 3846 | 多格式解析：PDF 文本层（PyMuPDF / pdfplumber）+ RapidOCR 扫描兜底；公式 LaTeX 抽取（`_RapidOCREngine`）；`_repair_formulas_latex` 公式修复；页面切块与位置信息 |
 | `core/models.py` | 526 | Pydantic 请求/响应模型：`User` / `TranslateRequest` / `SourceViewExplainRequest` / `StudyItemRename` 等 |
 | `core/discussion.py` | 504 | AI 同学讨论状态机：`SEED`（播种）→ `OPEN`（开放讨论）→ `ASSESS`（评估）→ `ARBITRATE`（仲裁）；`build_turn_messages` / `compress_point` 维护多轮对话与接力账本 |
 | `core/digest.py` | 146 | 知识库摘要（`kb_digests`）：通读全库生成知识空白、可写论断、资料张力 |
 | `core/knowledge_doc.py` | 1637 | 知识点文档：单节点详解的逐字段校验与本地兜底合并、递进坐标本地计算（第 N 站 / 第 M 层 / 承接谁）、按章节或按层序合订、正文手工编辑的落库（`save_markdown` 只改 `content_md`，结构化留档与指纹不动） |
 | `core/mineru.py` / `core/pages.py` | 543 / 418 | 可选高质量 PDF 通道（MinerU）与页面级抽取（公式区域检测，公式不重排保持原貌） |
+| `core/lit_evidence.py` | 442 | 文献「相关原文」定位：文字层行按栏左边缘锚点排序后合并成证据段（带 0 基页码 + PDF 点 bbox）→ 分批送模型打 0~3 分 → 折算相对置信度（名次项^4.2 + 分差项，做法复刻 PaperFocus, MIT）。**相对置信度是本次提问内部的相对名次，不是概率** |
 | `core/tju_courses.py` | 189 | 天津大学课程库 116 条元数据（课程号 / 名称 / 学科；113 条带课程号，另 3 条是体育 / 大学英语 / 文化素质选修三类公共项）；按课名预判学科选择题卡 few-shot |
 | `core/campus_sources.py` / `campus_lexicon.py` / `wx_accounts.py` | 2079 / 368 / 849 | 校园检索抓取：北洋维基全站正文 + 官网矩阵 + 公众号文章；60 个天大公众号订阅库清单 |
-| `core/prompt_catalog.py` | 487 | 提示词模板目录：按学科/难度汇聚 few-shot 示例（光学、通用等） |
+| `core/prompt_catalog.py` | 502 | 提示词模板目录：按学科/难度汇聚 few-shot 示例（光学、通用等） |
 | `core/prompt_overrides.py` | 101 | 提示词本地覆盖层：用户在提示词实验室改过的模板落在这里，读取时盖在 `prompt_catalog` 之上 |
 | `core/tesseract_auto.py` | 66 | RapidOCR / Tesseract 自动探测与降级 |
 | `core/review.py` | 787 | 卡片 FSRS 间隔复习：到期队列、复习提交、排期预览 |
@@ -345,6 +346,11 @@
 - **读书按需建项目（惰性 ensure）**：加入书架、同步书架、拉划线**都不建项目**，只写 `reading_books`；只有真要往里放资料时才 `ReadingStore.ensure_project()` → `create_book_project()`（本地导入 / 取回正文 / 沉淀卡片）。否则微信读书同步一次几百本 = 几百个空项目把侧栏塞满。书一旦有项目，就继承框架 / 卡片 / 测验 / 掌握度 / 撤销 / 导出整条链路。**只读路径全部降级为空而不报错**（`outline` / `cards` / `ask` / `intro` 在无项目时都给空态，不抛 `project_not_found`）。
 - **跨书网络只建图、不建树**：原子化 + 概念导向 + 密集链接，**偏好关联式本体而非层级分类**；学科只是节点上的标签，「哪些概念该在一起」由图自己长出来。图里最值钱的是**割点（桥）**——去掉它连通分量会变多，也就是「同时被两本书支持、又是两个领域唯一接口」的概念。**合并必须用户确认**：合并错了 = 假连接，之后所有跨书洞见都建立在假连接上，**比没有网更糟**（`candidate_pairs` 只给候选，必带 `needs_confirmation`）。方法论生成**只喂一个簇**（子图社区摘要比喂整张图准确得多），前端**刻意不上力导向**（每次刷新位置都变会毁掉空间记忆，「桥在两个环之间」才是要一眼看到的）。
 - **神经图谱：一套 token 供两处用，回退只删两行**：`--nv-*` 变量上提到 `:root`（浅色覆盖在 `html[data-theme="light"]`），沉浸层与页面内皮肤（学习概览 / 我的笔记）**共用同一套**、深浅自动跟随主题，而不是复制一份样式；皮肤选择器一律带 `html[data-theme]`，否则压不过 app 自己的 `html[data-theme="dark"] .overview-panel`。浅色模式**单独适配**而非反色（浅底上光球不能靠辉光，改描边 + 投影；香槟金压深到 `#a9822a`；Canvas 关掉加色合成）。浮层挂在 `body` 上会触发 `app.js` 的 `collapseStudio()`，所以在本层根节点**冒泡阶段截住指针 / 点击 / 键盘事件**、`Esc` 另在 window 捕获阶段 `stopImmediatePropagation()`。入口按钮由脚本注入 `.graph-toolbar`（`MutationObserver` 跟随重渲染），新脚本排在 `app.js` 之后直接读它的顶层 `state` —— **`app.js` 一行不改，删掉 `index.html` 两行即完全回退**。
+- **神经图谱的「目录索引」（借鉴 neural-vault 的图例 + 分组浏览）**：上游把知识库的**一级目录**画成水母并配一份图例；知源的框架本身就是树，**顶层节点即一级目录**，所以不新造分组，只把已有分组列成左下角一份可滚动清单（色点 + 名称 + 下级数量），点一行聚焦该目录（其余模块与神经丝按 `opacity` 压暗，球放大一档，**位置不动**——位置一变就毁了空间记忆）。展开时 `V.railW` 让图谱整体右移并收窄（上游的「窗口收窄时自动避让」是同一件事），**总览标签因此由两行压成一行**：实测相邻标签 y 只差 37px，两行约 60px 必叠，一行约 28px 恰好错开（数量在索引里另有一份，状态由球色编码，信息没丢）。窄屏（< 1000px）索引默认收起成一颗胶囊，避免贴边的标签被压。
+- **神经图谱的「发光水母」与切换动效（借鉴 neural-vault 的水母形态 + 上游的流光提速）**：模块球加**伞盖**（呼吸光晕）与 **5 条下垂摆动触须**，形态**全部长在 `.ko-nv-mod` 内部、且只做 `transform` / `opacity` 动画** —— 按钮自身的尺寸与位置不动，所以标签摆放与探针量的几何一行都不受影响（对几何是纯增量）。切换动效：进到某一层时水母**收伞**（触须收回、伞盖提亮），退回总览再张开；**悬停 / 聚焦时神经丝流光提速**（0.3 → 0.85），相位按 `dt` 自己累加而不是写成 `t * speed` —— 后者一提速整段会瞬移。**没有取用上游的代码与样式**：知源的伞盖、触须、神经丝、脉冲全部是 CSS 渐变 + keyframes 自绘。
+- **上游两个视频素材：深浅两套都启用，同一份文件两种合成**（2026-10-10）。`orb.mp4`（8.3 MB）做中心光球、`jellyfish.mp4`（707 KB）做各模块的发光水母，随仓库分发（`.gitignore` 里 `*.mp4` 之外单开了一条白名单），来源与许可义务见 `NOTICE.md` §2.1。合成方式全是实测出来的：① `jellyfish.mp4` 是**黑底、无 alpha** 的 H.264 —— 深色层靠 `mix-blend-mode: screen` 去底；浅色层换成 **`invert(1) hue-rotate(180deg)` + `multiply`**（黑底反相成白底，multiply 对白底是恒等 = 等于透明，hue-rotate 把被 invert 带偏的色相转回来），纸上于是留下一只**线描质地**的水母 —— **同一个文件，不用给浅色另做一份**；② `orb.mp4` 是浅灰底，径向遮罩裁掉灰底后深色层是燃烧球体、暖纸底上是深色火球，两套都立得住。水母用**一台解码器 + N 次 canvas 贴图**（不是给 16 个模块各挂一个 `<video>`，那是 16 台解码器）；`prefers-reduced-motion` 与关层两种情况都暂停播放。**素材缺失/解码失败一律静默回落自绘**——仓库里 `*.mp4` 默认是 gitignore 的，缺文件时必须照常能看。
+- **给模块换素材不能把动效弄丢**：`.ko-nv-stage[data-stage="module"]` 下的「收伞」原来只作用于自绘触须；换成视频后要**同时**作用于 canvas（`opacity + scaleY`），否则深色下进层就没了切换动效。探针也相应改成「量当前可见的那一个」（自绘 or 视频），不然这条断言会因为自绘触须被收掉而假失败。
+- **`prefers-reduced-motion` 只压 `animation-duration` 是不够的**：无限循环的动画在 `.01ms` 下会以约 100fps 反复重放 —— 观感是「抖」而不是「静」（呼吸光球尤其明显）。必须同时补 `animation-iteration-count: 1`，让动画跑完一遍后停在最后一帧。
 
 ---
 

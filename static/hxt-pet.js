@@ -969,7 +969,7 @@
   }
   // 引导模式：趴在左下角不挡对话主线（露出趴窝小图）
   document.addEventListener("knoworigin:pet-guide", function (e) {
-    if (e.detail && e.detail.active) { placeFree(18, window.innerHeight - 130, "crouch"); SFX.sleep(); }
+    if (e.detail && e.detail.active) { placeFree(18, viewH() - 130, "crouch"); SFX.sleep(); }
   });
 
   // ================= 权限持久化 =================
@@ -980,17 +980,34 @@
     try{ localStorage.setItem(CONF.storeKey, JSON.stringify({ muted:st.muted, focus:st.focus, sound:CONF.sound, x:st.x, y:st.y, persona:st.persona, enabled:st.enabled, customPos:!!st.customPos })); }catch(e){}
   }
 
+  // 界面整体缩放（html zoom）。zoom 会把 window.innerWidth/innerHeight 变成「视觉像素」，
+  // 而 container.style.left/top 收的是「设计像素」，两者相差 scale 倍。
+  // 凡是拿视口尺寸去算 style.left/top 的地方都必须先除回来，否则放大后桌宠会飘到视口外。
+  function koScale(){ return (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1; }
+  // 视口尺寸（设计像素）：贴边定位统一走它
+  function viewW(){ return window.innerWidth / koScale(); }
+  function viewH(){ return window.innerHeight / koScale(); }
+  // 把任意位置夹回视口内（设计像素），保证整个桌宠可见
+  function clampToView(x, y, w, h){
+    return {
+      x: Math.max(4, Math.min(viewW() - w - 4, x)),
+      y: Math.max(4, Math.min(viewH() - h - 4, y)),
+    };
+  }
+
   // ================= 事件绑定 =================
   function bind(){
     // —— 拖拽 + 点击二合一：按下 < 800ms 且移动 < 6px 视为点击；否则为拖动 ——
-    var downX=0,downY=0,ox=0,oy=0,dragging=false,didDrag=false,downT=0;
+    // scale = 界面整体缩放（html zoom）。rect/clientX 是视觉像素，st.x / style.left 是设计像素。
+    var downX=0,downY=0,ox=0,oy=0,scale=1,dragging=false,didDrag=false,downT=0;
 
     container.addEventListener("mousedown", function(e){
       if (e.target.closest(".hxt-menu") || e.target.closest(".hxt-close") || e.target.closest(".hxt-garden")) return;
       if (e.button!==0) return;
       dragging=true; didDrag=false; downT=Date.now();
       downX=e.clientX; downY=e.clientY;
-      var r=container.getBoundingClientRect(); ox=r.left; oy=r.top;
+      scale=(window.KnowOriginUiScale&&window.KnowOriginUiScale.scale())||1;
+      var r=container.getBoundingClientRect(); ox=r.left/scale; oy=r.top/scale;
       e.preventDefault();
     });
     window.addEventListener("mousemove", function(e){
@@ -1003,8 +1020,9 @@
       if(didDrag){
         // 自由浮空：随指针拖动，限制在窗口内保持可见
         var _dw = container.offsetWidth || 120, _dh = container.offsetHeight || 150;
-        st.x = Math.max(4, Math.min(window.innerWidth - _dw - 4, ox + e.clientX - downX));
-        st.y = Math.max(4, Math.min(window.innerHeight - _dh - 4, oy + e.clientY - downY));
+        var viewW = window.innerWidth/scale, viewH = window.innerHeight/scale;
+        st.x = Math.max(4, Math.min(viewW - _dw - 4, ox + dx/scale));
+        st.y = Math.max(4, Math.min(viewH - _dh - 4, oy + dy/scale));
         container.style.left = st.x+"px";
         container.style.top = st.y+"px";
         container.style.right="auto"; container.style.bottom="auto";
@@ -1437,13 +1455,15 @@
     });
     syncMuteUI();
     // —— 拖拽移动：按住头部拖动整个对话框，关闭按钮除外 ——
-    var ddx=0,ddy=0,dlx=0,dlt=0,ddrag=false;
+    // rect/clientX 是视觉像素，style.left 是设计像素：界面整体缩放时先除回。
+    var ddx=0,ddy=0,dlx=0,dlt=0,ddrag=false,dscale=1;
     var head = d.querySelector(".hxt-dialog-head");
     head.addEventListener("mousedown", function(e){
       if (e.target.closest("[data-hxt-close-dialog]")) return;
       if (e.button!==0) return;
+      dscale = (window.KnowOriginUiScale&&window.KnowOriginUiScale.scale())||1;
       var r = d.getBoundingClientRect();
-      dlx = r.left; dlt = r.top;
+      dlx = r.left/dscale; dlt = r.top/dscale;
       ddx = e.clientX; ddy = e.clientY;
       ddrag = true;
       d.style.left = dlx+"px"; d.style.top = dlt+"px";
@@ -1453,10 +1473,10 @@
     });
     window.addEventListener("mousemove", function(e){
       if (!ddrag) return;
-      var nlx = dlx + (e.clientX - ddx);
-      var nlt = dlt + (e.clientY - ddy);
-      nlx = Math.min(Math.max(0, nlx), window.innerWidth - 90);
-      nlt = Math.min(Math.max(0, nlt), window.innerHeight - 60);
+      var nlx = dlx + (e.clientX - ddx)/dscale;
+      var nlt = dlt + (e.clientY - ddy)/dscale;
+      nlx = Math.min(Math.max(0, nlx), window.innerWidth/dscale - 90);
+      nlt = Math.min(Math.max(0, nlt), window.innerHeight/dscale - 60);
       d.style.left = nlx + "px"; d.style.top = nlt + "px";
     });
     window.addEventListener("mouseup", function(){ ddrag = false; d.classList.remove("hxt-dialog-moving"); });
@@ -1550,8 +1570,8 @@
   function restMove(feature){
     var w = container.offsetWidth || 120, h = container.offsetHeight || 150;
     container.setAttribute("data-magnet", "true");
-    placeFree(Math.min(Math.max(8, window.innerWidth - w - 16), window.innerWidth - 24),
-              Math.max(8, window.innerHeight - h - 24), "clutch");
+    var p = clampToView(viewW() - w - 16, viewH() - h - 24, w, h);
+    placeFree(p.x, p.y, "clutch");
     setTimeout(function(){ container.setAttribute("data-magnet", "false"); }, 300);
   }
   function goRest(feature, status){
@@ -1770,12 +1790,13 @@
   // 停在某节点元素旁（自动避让，不遮节点/标签）
   function glideToNode(el, posture){
     var r = el.getBoundingClientRect();
-    var pw = container.getBoundingClientRect().width || 120;
-    var hm = 20, left = r.right + hm, top = r.top + (r.height-120)/2;
-    if (left + pw > window.innerWidth - 8) left = r.left - pw - hm;
-    if (left < 8) left = r.right + hm;
-    top = Math.max(8, Math.min(top, window.innerHeight - 132));
-    flyTo(Math.max(8,left), top, posture);
+    var s = koScale();                       // rect 是视觉像素，style.left 是设计像素
+    var pw = container.getBoundingClientRect().width / s || 120;
+    var hm = 20, left = r.right / s + hm, top = (r.top + (r.height - 120) / 2) / s;
+    if (left + pw > viewW() - 8) left = r.left / s - pw - hm;
+    if (left < 8) left = r.right / s + hm;
+    top = Math.max(8, Math.min(top, viewH() - 132));
+    flyTo(Math.max(8, left), top, posture);
   }
   function clearTourFlags(){
     (st.tour || {}).prevEl = null;
@@ -1801,7 +1822,7 @@
     var n = t.list[t.idx];
     var el = graphNodeEl(n.node_id);
     if (el){ glideToNode(el, "interact"); flagNode(t.prevEl,"hxt-tour-active",false); flagNode(el,"hxt-tour-active",true); t.prevEl = el; }
-    else { flyTo(Math.max(12, window.innerWidth-270), 90, "interact"); }
+    else { flyTo(Math.max(12, viewW() - 270), 90, "interact"); }
     // 薄弱节点：停留提示补
     var rank = nodeRank(n.learning_status||"", n.coverage_status||"");
     var weak = (rank==="wilted") || (nodeMastery(n.node_id)==null ? Number(n.mastery_score||0)<0.55 : nodeMastery(n.node_id)<0.55);
@@ -2028,12 +2049,35 @@
   function placeFreeInitial(){
     if (_placedOnce) return;
     var w = container.offsetWidth || 120, h = container.offsetHeight || 150;
-    var x = (typeof st.x === "number" && !isNaN(st.x)) ? st.x : Math.min(Math.max(8, window.innerWidth - w - 16), window.innerWidth - 24);
-    var y = (typeof st.y === "number" && !isNaN(st.y)) ? st.y : Math.max(8, window.innerHeight - h - 16);
-    placeFree(x, y, DEFAULT_POSTURE);
+    // 默认停右下角。窗口/缩放变化后若记忆位置已出界，也顺手夹回来。
+    var has = typeof st.x === "number" && !isNaN(st.x) && typeof st.y === "number" && !isNaN(st.y);
+    var p = clampToView(has ? st.x : viewW() - w - 16, has ? st.y : viewH() - h - 16, w, h);
+    placeFree(p.x, p.y, DEFAULT_POSTURE);
     _placedOnce = true;
   }
   placeFreeInitial();
+  // 界面缩放变化后：视口在设计像素下变小了，桌宠必须重新夹回屏内。
+  // （真实复现：桌宠已在右下角 → 拖动「界面大小」放大 → 它按设计像素停在原处，
+  //   但设计像素视口缩到 1440/1.35，于是整只被推出右边界，表现为"图标消失在边界"。）
+  window.addEventListener("resize", function () {
+    if (!st.enabled) return;
+    var cr = container.getBoundingClientRect();
+    if (cr.width < 1) return;                       // 未显示时不动
+    if (st.railSnap) { snapRailY(); return; }
+    var w = container.offsetWidth || 120, h = container.offsetHeight || 150;
+    var p = clampToView(st.x, st.y, w, h);
+    if (p.x !== st.x || p.y !== st.y) placeFree(p.x, p.y);
+  });
+  // 拖「界面大小」滑块时不一定触发 resize（只改 zoom），监听设置变化兜底。
+  document.addEventListener("knoworigin:ui-scale", function () {
+    if (!st.enabled) return;
+    var cr = container.getBoundingClientRect();
+    if (cr.width < 1) return;
+    if (st.railSnap) { snapRailY(); return; }
+    var w = container.offsetWidth || 120, h = container.offsetHeight || 150;
+    var p = clampToView(st.x, st.y, w, h);
+    if (p.x !== st.x || p.y !== st.y) placeFree(p.x, p.y);
+  });
   // ================= 默认在窗口内自由溜达（除非点击/交互时暂停） =================
   // 安静害羞的人设：多数时候安静待着眨眼，每隔一阵在窗口下半区慢慢飘一段，
   // 到站偶尔给一点小反馈。
@@ -2073,14 +2117,16 @@
       }
       if (wanderPaused()) return;
       var _w = container.offsetWidth || 120, _h = container.offsetHeight || 150;
-      var spanW = window.innerWidth - _w - 16, spanH = window.innerHeight - _h - 24;
+      var vw = viewW(), vh = viewH();          // 设计像素视口（见 koScale 注释）
+      var spanW = vw - _w - 16, spanH = vh - _h - 24;
       if (spanW < _w * 0.6 || spanH < _h) return; // 窗口太窄就不溜达，安静待着
       var cur = container.getBoundingClientRect();
+      var curL = cur.left / koScale(), curT = cur.top / koScale();
       // 自由浮空：在窗口下半区随机挑个落脚点，慢慢挪过去（不上任何滑轨）
       var targetX = 8 + Math.random() * Math.max(1, spanW - 8);
-      var targetY = Math.max(8, Math.min(spanH, window.innerHeight * 0.3 + Math.random() * Math.max(1, spanH * 0.55)));
-      if (Math.abs(targetX - cur.left) < _w * 0.6 && Math.abs(targetY - cur.top) < _h * 0.6) return;
-      var dur = Math.min(2600, 500 + (Math.abs(targetX - cur.left) + Math.abs(targetY - cur.top)) * 1.2);
+      var targetY = Math.max(8, Math.min(spanH, vh * 0.3 + Math.random() * Math.max(1, spanH * 0.55)));
+      if (Math.abs(targetX - curL) < _w * 0.6 && Math.abs(targetY - curT) < _h * 0.6) return;
+      var dur = Math.min(2600, 500 + (Math.abs(targetX - curL) + Math.abs(targetY - curT)) * 1.2);
       st.x = targetX; st.y = targetY;
       container.setAttribute("data-magnet", "true"); // 柔和磁力滑过去
       vecNode().classList.add("hxt-waddle");          // 小碎步摇摆（避开 hxt-static 的 animation:none）

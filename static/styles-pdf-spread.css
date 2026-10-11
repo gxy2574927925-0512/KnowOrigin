@@ -1,0 +1,391 @@
+/* 文献精读 · 整页对照翻译（版式保真）
+   只服务 pdf-spread-ui.js 注入的那块右栏；删掉 index.html 里这行 <link> 即完全回退。
+   变量名沿用 styles-literature.css 已有的一套（--panel / --line / --ink / --muted / --green-dark），
+   明暗主题自动跟随，不新增主题分支。 */
+
+/* 译文栏挂在 .orig-pan-canvas 里，与 .orig-stage 并列 —— 它就是画布的第二栏，
+   不再是「独立滚动的侧栏」。纵向滚动统一由 canvas 承担，左右两页永远对齐。
+   ⚠️ 不设 max-width 百分比：canvas 是横向滚动容器，百分比按它算会把栏
+      卡在可视区右缘之外（实测栏左边界 1044 > 可视右缘 1368-460），
+      用户得先横滚才看得见译文页。定宽 + min-width 即可。 */
+.pdf-spread-pane {
+  flex: 0 0 var(--ps-w, 460px);
+  min-width: 280px;
+  min-height: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  z-index: 30;
+}
+
+/* 加宽：译文栏吃更多宽度（对照时右侧那页太小是主要抱怨点） */
+.pdf-spread-pane.is-wide {
+  flex: 0 0 58%;
+  max-width: 58%;
+}
+
+.pdf-spread-pane.hidden {
+  display: none;
+}
+
+.pdf-spread-toggle.active {
+  border-color: var(--green-dark);
+  color: var(--green-dark);
+  font-weight: 700;
+}
+
+.ps-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ps-title {
+  font-weight: 700;
+  font-size: calc(13px * var(--font-scale, 1));
+  color: var(--green-dark);
+}
+
+.ps-status {
+  margin-left: auto;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted);
+}
+
+.ps-wide-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: calc(11.5px * var(--font-scale, 1));
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.ps-wide-btn:hover { border-color: var(--green); color: var(--green-dark); }
+.ps-wide-btn[aria-pressed="true"] {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+
+/* 纵向滚动交给 .orig-pan-canvas（左右联动的前提）；这里只保留横向自身内容宽度。
+   .ps-body 不设 min-height:0 + overflow:auto 的话，它会把译文图裁进自己的框里，
+   拖动画布时只有原文在动、译文纹丝不动——正是要修的 bug。 */
+.ps-body {
+  flex: 1 1 auto;
+  overflow: visible;
+  padding: 12px;
+}
+
+/* 用 block 而不是 flex 居中：放大后图宽超过容器时，flex 的居中会让左右两边
+   都溢出到不可滚到的位置（经典 flex 居中滚动 bug），block 只会向右溢出，
+   .ps-body 的 overflow:auto 就能滚到。 */
+.ps-page {
+  display: block;
+  position: relative; /* 译文页文本层用 inset:0 铺在页图上，定位基必须是这里 */
+}
+
+/* 译文页文本层：与左栏 .orig-text-layer 同一套做法 —— dual PDF 译文页的真实
+   文本叠在页图上，颜色透明，只有 ::selection 的底色可见，所以「图上看到的字」
+   和「选中的字」是同一批，靠的就是几何对齐（行坐标由后端随 /spread 一起给）。 */
+.ps-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  user-select: text;
+  -webkit-user-select: text;
+  z-index: 2;
+}
+
+.ps-tl-line {
+  position: absolute;
+  color: transparent;
+  background: transparent;
+  white-space: pre;
+  overflow: visible;
+  pointer-events: auto;
+  cursor: text;
+  font-family: serif;
+}
+
+/* 与左栏 .orig-tl-line::selection 写同一档（都是「文本层透明、只有底色可见」）。
+   注意：这条在默认主题下**不生效** —— styles-immersive 的
+   html:not([data-theme="dark"]) ::selection（specificity 0,2,0）压过它，
+   实际看见的是品牌色淡染。留着是为了「摘掉增强层」时两栏观感仍一致。 */
+.ps-tl-line::selection { background: rgba(72, 187, 120, 0.4); color: transparent; }
+
+/* 译文页已落库的高亮（与左栏共用 store.originalHl，靠 side 区分）。
+   容器自己做定位；里面每行的 span 走 .orig-hl-line（styles-literature.css 里已有的那套），
+   所以这里只需要把层摆到页图上。 */
+.ps-hl-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 跨栏联动高亮：在**对面**栏划词时，本页对应行贴的色块。
+   ⚠️ 颜色必须**照抄 styles-immersive.css 那条全局 ::selection**：
+   `html:not([data-theme="dark"]) ::selection` 的 specificity 是 0,2,0，
+   压过了 .ps-tl-line::selection（0,1,0）—— 所以两栏选中的实际底色是品牌色淡染，
+   上面那条绿底其实没生效。联动色块若写死绿色，就会出现「左边选中是蓝、右边联动是绿」。
+   （实测截图：左栏选中 rgb(56,103,214,.22)，与这里解析式一致。） */
+.ps-link-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+.ps-link-box {
+  position: absolute;
+  border-radius: 2px;
+  background: rgba(var(--green-rgb, 107, 158, 92), 0.22);
+}
+html[data-theme="dark"] .ps-link-box {
+  background: rgba(var(--green-rgb, 124, 185, 107), 0.3);
+}
+
+/* 联动状态提示：选区一动就会去问一次对应关系，得让用户知道它在忙/有没有对上 */
+.ps-link-state {
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--green-dark);
+  white-space: nowrap;
+}
+.ps-link-state.is-busy { color: var(--muted); }
+.ps-link-state.is-miss { color: var(--muted); }
+
+/* 首次栅格化一页要几百毫秒，给个转圈，别让右栏空着像坏了 */
+.ps-loading {
+  padding-top: 32px;
+}
+
+.ps-img {
+  display: block;
+  width: calc(100% * var(--ps-zoom, 1));
+  max-width: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  /* 拖拽选择时别触发浏览器的图片拖拽（会把选区拖成一个半透明幽灵图） */
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ps-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.ps-link {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--green-dark);
+}
+
+.ps-hint,
+.ps-empty p,
+.ps-setup p {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.ps-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding-top: 24px;
+}
+
+.ps-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding-top: 16px;
+}
+
+.ps-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--ink);
+}
+
+.ps-field input {
+  width: 120px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.ps-spin {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line);
+  border-top-color: var(--green-dark);
+  border-radius: 50%;
+  animation: ps-rotate 0.8s linear infinite;
+}
+
+@keyframes ps-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ====================================================================
+   铺满双页模式（仿 Zotero 摊开 PDF 双页对照阅读器）
+   --------------------------------------------------------------------
+   启用条件：.pdf-spread-pane.is-spread-mode
+   侧栏（默认）与铺满模式之间无缝切换，刷新页面后由 localStorage 恢复
+   ==================================================================== */
+
+/* 译文栏扩到与原文等宽；让视觉上有"两页翻开"的既视感。
+   用 flex:0 0 50% 定宽（不参与 grow/shrink），另一半精确留给原文栏。 */
+.pdf-spread-pane.is-spread-mode {
+  flex: 0 0 50%;
+  max-width: 50%;
+  min-width: 0;
+  border-left: 1px dashed var(--line);
+}
+
+/* 原文栏必须从 basis 0 起步（否则 flex-basis:auto 会按原页图固有宽度参与分配，
+   两栏分不到精确的 50/50），**但只在 100% 缩放下成立**：
+   缩放一旦 != 1，原文车道必须重新吃 --orig-lane-w（= 可视宽 × zoom，由
+   literature.js 的 applyOrigZoom 写），否则这条 flex:1 1 0 会把它压回可视宽 ——
+   表现就是「铺满双页时右边译文页能放大、左边原文页纹丝不动」。
+   译文栏本身是 flex:0 0 50% 定宽，所以放大后由 canvas 横向滚，两栏一起走。 */
+.orig-body.is-spread-mode:not(.is-zoomed) > .orig-pan-canvas > .orig-stage,
+.orig-body.is-spread-mode:not(.is-zoomed) > .orig-stage {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* 铺满时：原文阅读器内嵌的"文本翻译面板"与拖拽条都没意义了，
+   它们挤掉铺满空间，也跟"图对图"视觉冲突，关掉。
+   选择 .orig-body.is-spread-mode（由 JS 同步切换），不依赖 :has()，兼容更广。 */
+.orig-body.is-spread-mode > .orig-trans-panel,
+.orig-body.is-spread-mode > .orig-trans-resizer {
+  display: none !important;
+}
+
+/* 顶栏新增：模式切换按钮（侧栏 / 铺满双页） + 缩放百分比 + +/- */
+.ps-mode-btn,
+.ps-zoom-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: calc(11.5px * var(--font-scale, 1));
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.ps-mode-btn:hover,
+.ps-zoom-btn:hover { border-color: var(--green); color: var(--green-dark); }
+.ps-mode-btn:disabled,
+.ps-zoom-btn:disabled { opacity: .4; cursor: not-allowed; }
+.ps-mode-btn[aria-pressed="true"] {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+.ps-zoom-btn { padding: 3px 9px; font-weight: 700; }
+
+.ps-zoom {
+  font-variant-numeric: tabular-nums;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--muted);
+  min-width: 38px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 顶栏在窄侧栏下项目塞不下时自动折行，别把按钮挤出可视区 */
+.ps-head {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.ps-head .ps-title { margin-right: 4px; }
+
+/* 缩放由 --ps-zoom 控制：默认 1，最大能放到 3。
+   width 用 --ps-lane-w（= 栏内可用宽度，由 literature.js 在缩放时用设计像素写死）
+   而不是 100%：.ps-body 现在 overflow:visible、宽度由内容决定，100% 没有确定基，
+   ⚠️ 只吃 --ps-zoom，**不要**再乘 / 除 --ui-scale：界面整体缩放（<html> 上的 CSS zoom）
+      会把这个值连同像素一起放大，再乘一次就变成「界面缩放倍的放大」，
+      表现为拖动界面缩放滑块时译文页跟着莫名变大变小。
+
+   纵向为什么不用 height【把图拉扁】来配合宽度：
+   - 设计像素（width: Npx）在 <html> zoom 下会再被乘一次 zoom，实测译文页比原文页
+     大一圈、右边被裁掉。所以宽度走百分比，让图自己按比例撑高。
+   - 而高度必须**排掉对齐**（align-self:flex-start）。.pdf-spread-pane 是
+     canvas 的 flex 子项、带 align-self:stretch，若 .ps-body 也跟着 stretch，
+     它的"内容高度"就由父容器决定 —— 父高不变时图变宽也不变高，图片比例被压扁，
+     原文放大到 260% 译文页还钉在 100% 的样子。
+     flex-start 让它按内容高（= 宽度 × 图片比例）走，左右两栏才会同步放大。 */
+.ps-img {
+  display: block;
+  width: calc(var(--ps-lane-w, 100%) * var(--ps-zoom, 1));
+  max-width: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+/* 抓手模式（与原页同一开关，类名由 literature.js 的 syncOrigGrab 打在滚动容器上）：
+   译文栏不再自己滚动，滚动容器是 .orig-pan-canvas。这里只负责「原文栏之外的
+   区域也该显示抓手光标」——canvas 上的类名不会自动传给子元素的光标。 */
+.orig-pan-canvas.is-grab .pdf-spread-pane,
+.orig-pan-canvas.is-grab .ps-body,
+.orig-pan-canvas.is-grab .ps-page,
+.orig-pan-canvas.is-grab .ps-img { cursor: grab; }
+.orig-pan-canvas.is-grab .ps-img { user-select: none; -webkit-user-select: none; }
+/* 抓手态下页脚链接不吃拖拽起手点（否则点在「打开双语 PDF」上会走链接） */
+.orig-pan-canvas.is-grab .ps-foot { pointer-events: none; }
+.orig-pan-canvas.is-panning .pdf-spread-pane,
+.orig-pan-canvas.is-panning .ps-body,
+.orig-pan-canvas.is-panning .ps-page,
+.orig-pan-canvas.is-panning .ps-img,
+.orig-pan-canvas.is-panning .ps-link { cursor: grabbing; }
+
+/* 铺满时给图居中、双页呼吸感更足 */
+.pdf-spread-pane.is-spread-mode .ps-body { padding: 14px 22px; }
+
+/* 铺满态的 .ps-page 保持 block/width:auto：里面的 .ps-img 用
+   calc(var(--ps-lane-w) * var(--ps-zoom)) 取栏宽百分比。 */
+.pdf-spread-pane.is-spread-mode .ps-page {
+  margin: 0 auto;
+}
+
+/* ====================================================================
+   铺满双页：阅读区左右内边距收窄，双页才贴边
+   --------------------------------------------------------------------
+   （原来这里还有一条 max-width:none 的覆盖，用来解开
+   styles-literature.css 里 `.sr-reader-body > *` 的 960px 上限。那个上限现在
+   已经在源头排除了 .orig-reader —— 单页放大同样要整宽，所以覆盖删掉了。）
+   ==================================================================== */
+.sr-reader-body:has([data-orig-body].is-spread-mode) {
+  padding-left: 10px;
+  padding-right: 10px;
+}

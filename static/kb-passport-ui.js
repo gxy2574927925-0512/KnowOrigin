@@ -318,7 +318,9 @@
         grip.setAttribute("data-dragging", "true");
 
         var onMove = function (moveEvent) {
-          var delta = moveEvent.clientX - startX;
+          // 指针位移是视觉像素、sides[key] 是设计像素：界面整体缩放时先除回设计像素。
+          var scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+          var delta = (moveEvent.clientX - startX) / scale;
           // 左栏在图左边：往右拖变宽；护照在图右边：往左拖变宽
           var grow = key === "left" ? delta : -delta;
           if (invert) grow = -grow;

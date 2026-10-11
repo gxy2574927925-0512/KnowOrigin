@@ -253,7 +253,7 @@ html[data-ui="agent"] .studio-panel.studio-focus {
   display: grid;
   /* 只占主列（第 3 列），左侧图标栏与会话栏留在原位可见。
      基础样式是 position:fixed + inset:16px 的整屏浮层，这里必须退回普通栅格项：
-     固定定位 + inset:0 + 100vw/100vh 会无视 grid-column 铺满整个视口。
+     固定定位 + inset:0 + var(--vw)/var(--vh) 会无视 grid-column 铺满整个视口。
      z-index 只要比同格的 .agent-panel 高（盖住对话区），不能压过左栏。 */
   position: relative;
   inset: auto;
@@ -308,7 +308,7 @@ html[data-ui="agent"] .studio-panel.studio-focus .studio-output {
   background: transparent;
 }
 html[data-ui="agent"] .studio-panel.studio-focus .framework-shell { grid-template-columns: 200px minmax(0, 1fr); gap: 12px; }
-html[data-ui="agent"] .studio-panel.studio-focus .graph-wrap { height: min(72vh, 820px); }
+html[data-ui="agent"] .studio-panel.studio-focus .graph-wrap { height: min(calc(72 * var(--vhi)), 820px); }
 
 /* 英语词汇视图挂在 .studio-panel（不在 #studio-output 里，是 JS 运行时 append 的兄弟节点），
    要显式放进内容行。
@@ -339,7 +339,7 @@ html[data-ui="agent"] .sources-panel { display: none; }
 
 html[data-ui="agent"] body.agent-sources-open .sources-panel {
   display: block; place-self: center; z-index: 110;
-  width: min(540px, calc(100vw - 64px)); height: min(84vh, 760px);
+  width: min(540px, calc(var(--vw) - 64px)); height: min(calc(84 * var(--vhi)), 760px);
   padding: 0 16px 16px;
   border: 1px solid var(--agent-line); border-radius: 14px; background: var(--panel);
   /* 100vmax 外扩充当遮罩：省掉一个额外元素，也不会和 studio-focus 的背板打架 */

@@ -60,6 +60,10 @@ from core.vault_export import (
 )
 # 文献精读导出：只服务新增的 /api/literature/{id}/export* 两个端点，
 # 渲染全在 core/literature_export.py，与 vault_export 各管一摊、互不影响。
+from core.pdf_translate import (
+    translate_pdf as _translate_pdf_bytes,
+    translation_key as _pdf_translation_key,
+)
 from core.literature_export import (
     build_export as build_literature_export,
     build_zip as build_literature_zip,
@@ -197,6 +201,8 @@ from core.models import (
     LiteratureMarkUpdate,
     ReadingProgressUpdate,
     TranslateRequest,
+    TranslatePdfRequest,
+    LinkSpreadRequest,
     FavoriteCreate,
     FavoriteUpdate,
     ExtractedSource,
@@ -12701,6 +12707,56 @@ def create_app(
             if source.text and source.text.strip()
         )
 
+    def _pages_meta_for_source(source: Any, content: bytes) -> dict[str, Any]:
+        """按页元数据（页数/尺寸 + 内置文本层 + 公式区域坐标），带磁盘缓存。
+
+        /pages 端点与文献「相关原文」共用这一份：缓存键是「原文件 mtime + size」，
+        文件一换自动失效。两处各写一遍缓存键的话，改了一处另一处就会静默用旧数据。
+        """
+        from core.pages import build_pages_meta
+
+        pages_dir = (
+            application.state.source_previews_dir
+            / source.project_id
+            / source.source_id
+            / "pages"
+        )
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = pages_dir / "pages_meta.json"
+        src_path = _source_file_path(application, source)
+        key = (
+            f"{src_path.stat().st_mtime_ns}:{src_path.stat().st_size}"
+            if src_path.is_file()
+            else "inmem"
+        )
+        try:
+            if cache_path.is_file():
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("_key") == key:
+                    return cached
+        except Exception:  # noqa: BLE001
+            pass
+        meta = build_pages_meta(content)
+        meta["_key"] = key
+        try:
+            cache_path.write_text(json.dumps(meta), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+        return meta
+
+    def _literature_primary_source(project_id: str) -> Any:
+        """文献精读认定的「那篇论文」对应的源文件。
+
+        与前端 ``originalSourceId()`` 同一口径：跳过流式占位与下划线前缀的内部源，
+        取第一个真实导入的 PDF。两端口径不一致的话，前端按页定位会指到另一份文件上。
+        """
+        for source in db.list_sources(project_id):
+            sid = source.source_id or ""
+            if not sid or sid == "__streaming__" or sid.startswith("_"):
+                continue
+            return source
+        return None
+
     def _comparison_cache_key(owner_id: str, project_ids: list[str]) -> str:
         """同一组论文（与勾选顺序无关）共用一个缓存槽位。"""
         joined = "|".join(sorted(project_ids))
@@ -13040,6 +13096,13 @@ def create_app(
             extracted = extract_source("粘贴文本.txt", b"", pasted_text=pasted_text)
             source_title = "粘贴文本"
         paper_title = (title or "").strip() or source_title or "论文"
+        # 媒体兜底渲染必须在**入库前**做：_fill_empty_media_images 的入参和返回值都是
+        # ExtractedSource（它是给解析结果用的纯函数），不能拿它去覆盖已经入库的 Source ——
+        # 那样末尾的 _source_payload 会因为缺少 project_id/source_id 直接 500
+        # （2026-10-11 冒烟跑到的既有 bug：只要这篇论文有图表且图没带 image，
+        #   走 POST /api/literature 的导入路径就必然炸）。
+        if file is not None:
+            extracted = _fill_empty_media_images(content, extracted)
         project = db.create_literature(user.user_id, paper_title)
         saved = db.add_source(project.project_id, extracted)
         if file is not None:
@@ -13068,9 +13131,6 @@ def create_app(
                     )
             except Exception:
                 pass  # 整理失败不阻断导入
-
-        # 自动 AI 整理排版后，确保所有图表均具备可用图像 data URI
-        saved = _fill_empty_media_images(content, saved)
 
         record_undo(
             user,
@@ -13560,6 +13620,497 @@ def create_app(
         done = sum(1 for segment in segments if segment.get("translated_text"))
         return {"total": total, "done": done, "pending": total - done}
 
+    # ------------------------------------------------------------------
+    # 版式保真 PDF 全文翻译（外部工具 pdf2zh / BabelDOC）
+    #
+    # 和「正文翻译」是两回事：那条走 LLM 翻文本，这条产出的还是 PDF，
+    # 图表公式原位保留，左右并排就是 Zotero 那套双语对照效果。
+    # ------------------------------------------------------------------
+
+    def _spread_line_text(raw: Any) -> str:
+        """整页对照文本层单行的清洗：去掉 pdf2zh 的分词占位符等控制字符。
+
+        ⚠️ 只改文本，**绝不删行**：前端把「第几行」当索引去画高亮、去查联动对应，
+        两个端点（/spread、/link）必须用同一套行序，否则整页错位。
+        """
+        return re.sub(r"[\x00-\x1f]+", " ", str(raw or "")).strip()
+
+    def _pdf_link_cache() -> dict[Any, Any]:
+        cache = getattr(application.state, "pdf_link_cache", None)
+        if cache is None:
+            cache = {}
+            application.state.pdf_link_cache = cache
+        return cache
+
+    def _pdf_translate_dir(project_id: str, source_id: str, key: str) -> Path:
+        return (
+            application.state.source_previews_dir
+            / project_id
+            / source_id
+            / "pdf2zh"
+            / key
+        )
+
+    def _pdf_translate_source(project_id: str, source_id: str | None):
+        """挑出要翻译的 PDF 来源：给了 source_id 就用它，否则取该文献第一个 PDF。"""
+        sources = db.list_sources(project_id)
+        if source_id:
+            return next((s for s in sources if s.source_id == source_id), None)
+        return next(
+            (s for s in sources if Path(s.filename).suffix.lower() == ".pdf"), None
+        )
+
+    def _pdf_translate_jobs() -> dict[str, Any]:
+        jobs = getattr(application.state, "pdf_translate_jobs", None)
+        if jobs is None:
+            jobs = {}
+            application.state.pdf_translate_jobs = jobs
+        return jobs
+
+    def _pdf_translate_products(
+        project_id: str, source_id: str, key: str
+    ) -> dict[str, Any]:
+        """已翻译产物的描述；没跑过/没跑出来就 dual_ready=False。"""
+        directory = _pdf_translate_dir(project_id, source_id, key)
+        dual = next(iter(sorted(directory.glob("*.dual.pdf"))), None) if directory.is_dir() else None
+        mono = next(iter(sorted(directory.glob("*.mono.pdf"))), None) if directory.is_dir() else None
+        jobs = _pdf_translate_jobs()
+        job = jobs.get(f"{project_id}:{source_id}", {}) or {}
+        return {
+            "source_id": source_id,
+            "state": job.get("state", "idle"),
+            "error": job.get("error", ""),
+            "dual_ready": bool(dual and dual.is_file()),
+            "mono_ready": bool(mono and mono.is_file()),
+            "spreads": _pdf_spread_count(dual) if dual else 0,
+            "elapsed_sec": job.get("elapsed_sec", 0.0),
+        }
+
+    def _pdf_spread_count(dual: Path) -> int:
+        """交替对照版是「原文页 / 译文页」两两成对，对数 = 总页数 // 2。"""
+        try:
+            from core.pages import pdf_page_count
+
+            return pdf_page_count(dual.read_bytes()) // 2
+        except Exception:  # noqa: BLE001 - 计数失败不该影响状态接口
+            return 0
+
+    def _pdf_translate_key_for(
+        project_id: str, source_id: str, data: bytes, pages: str
+    ) -> str:
+        """算翻译产物的缓存键；前端没带页码范围时，回退到该文献已有的产物。
+
+        页码范围只存在前端内存里，刷新页面就没了。若严格按空页码算 key，目录对不上，
+        明明翻过的文献会显示「未翻译」、右侧对照也拉不出来。回退到最近一次产物的
+        目录名，用户刷新后仍能直接看到上次的结果。
+        """
+        pages = (pages or "").strip()
+        if pages:
+            return _pdf_translation_key(data, "zh", pages)
+        root = (
+            application.state.source_previews_dir / project_id / source_id / "pdf2zh"
+        )
+        best_name, best_stamp = "", -1.0
+        if root.is_dir():
+            for child in sorted(root.iterdir()):
+                if not child.is_dir() or not any(child.glob("*.dual.pdf")):
+                    continue
+                try:
+                    stamp = child.stat().st_mtime
+                except OSError:
+                    continue
+                if stamp > best_stamp:
+                    best_name, best_stamp = child.name, stamp
+        return best_name or _pdf_translation_key(data, "zh", "")
+
+    async def _run_pdf_translate_job(
+        project_id: str, source_id: str, key: str, data: bytes, pages: str
+    ) -> None:
+        jobs = _pdf_translate_jobs()
+        job_key = f"{project_id}:{source_id}"
+        started = time.time()
+        settings = application.state.settings
+        try:
+            mono, dual = await asyncio.to_thread(
+                _translate_pdf_bytes,
+                data,
+                _pdf_translate_dir(project_id, source_id, key),
+                api_key=settings.tju_api_key,
+                base_url=settings.tju_base_url,
+                model=settings.tju_model,
+                cli=getattr(settings, "pdf2zh_cli", "pdf2zh_next"),
+                lang_to="zh",
+                pages=pages,
+                timeout=getattr(settings, "pdf2zh_timeout_seconds", 3600.0),
+            )
+        except Exception as exc:  # noqa: BLE001 - 外部工具任何意外都收敛成状态
+            LOGGER.warning("pdf translate failed project=%s: %s", project_id, exc)
+            jobs[job_key] = {
+                "state": "failed",
+                "error": str(exc)[:200],
+                "elapsed_sec": round(time.time() - started, 1),
+            }
+            return
+        error = ""
+        if not dual:
+            # 把 pdf2zh 自己日志的最后几行带出来，否则界面上只有一句「没产出」
+            log_file = _pdf_translate_dir(project_id, source_id, key) / "translate.log"
+            tail = ""
+            try:
+                tail = log_file.read_text(encoding="utf-8", errors="ignore")[-300:]
+            except OSError:
+                tail = ""
+            error = "pdf2zh 未产出对照版 PDF" + ("：" + tail if tail else "")
+        jobs[job_key] = {
+            "state": "done" if dual else "failed",
+            "error": error,
+            "elapsed_sec": round(time.time() - started, 1),
+        }
+
+    @application.post("/api/literature/{project_id}/translate-pdf")
+    async def translate_pdf_start(
+        project_id: str, payload: TranslatePdfRequest, request: Request
+    ) -> dict[str, Any]:
+        require_project_access(project_id, request)
+        settings = application.state.settings
+        if not getattr(settings, "pdf2zh_enabled", False):
+            raise HTTPException(
+                status_code=503,
+                detail=error_payload(
+                    "pdf2zh_unavailable",
+                    "未检测到版式翻译工具 pdf2zh（可选组件），整页对照翻译暂不可用。",
+                ),
+            )
+        source = _pdf_translate_source(project_id, payload.source_id)
+        if source is None:
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload("no_pdf_source", "这篇文献没有可用的 PDF 原文。"),
+            )
+        data = _source_file_bytes(application, source)
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload(
+                    "source_file_unavailable", "该 PDF 导入时未保留原文件，无法翻译。"
+                ),
+            )
+        pages = (payload.pages or "").strip()
+        key = _pdf_translate_key_for(project_id, source.source_id, data, pages)
+        status = _pdf_translate_products(project_id, source.source_id, key)
+        if status["dual_ready"] and not payload.force:
+            return {**status, "cached": True}
+        if status["state"] == "running":
+            return {**status, "cached": False}
+
+        jobs = _pdf_translate_jobs()
+        jobs[f"{project_id}:{source.source_id}"] = {
+            "state": "running",
+            "started_at": time.time(),
+        }
+        asyncio.create_task(
+            _run_pdf_translate_job(
+                project_id, source.source_id, key, data, pages
+            )
+        )
+        return {**status, "state": "running", "cached": False}
+
+    @application.get("/api/literature/{project_id}/translate-pdf/status")
+    async def translate_pdf_status(
+        project_id: str,
+        request: Request,
+        source_id: str = "",
+        pages: str = "",
+    ) -> dict[str, Any]:
+        require_project_access(project_id, request)
+        settings = application.state.settings
+        source = _pdf_translate_source(project_id, source_id or None)
+        if source is None:
+            return {
+                "available": bool(getattr(settings, "pdf2zh_enabled", False)),
+                "state": "idle",
+                "dual_ready": False,
+                "spreads": 0,
+            }
+        data = _source_file_bytes(application, source)
+        if not data:
+            return {
+                "available": bool(getattr(settings, "pdf2zh_enabled", False)),
+                "state": "idle",
+                "dual_ready": False,
+                "spreads": 0,
+                "error": "原文文件缺失",
+            }
+        key = _pdf_translate_key_for(project_id, source.source_id, data, pages)
+        return {
+            "available": bool(getattr(settings, "pdf2zh_enabled", False)),
+            **_pdf_translate_products(project_id, source.source_id, key),
+        }
+
+    @application.get("/api/literature/{project_id}/translate-pdf/file")
+    async def translate_pdf_file(
+        project_id: str,
+        request: Request,
+        source_id: str = "",
+        pages: str = "",
+        kind: str = "dual",
+    ) -> FileResponse:
+        require_project_access(project_id, request)
+        source = _pdf_translate_source(project_id, source_id or None)
+        if source is None:
+            raise HTTPException(
+                status_code=404, detail=error_payload("no_pdf_source", "没有可用的 PDF 原文。")
+            )
+        data = _source_file_bytes(application, source)
+        if not data:
+            raise HTTPException(
+                status_code=404, detail=error_payload("source_file_unavailable", "原文缺失。")
+            )
+        directory = _pdf_translate_dir(
+            project_id, source.source_id, _pdf_translate_key_for(project_id, source.source_id, data, pages)
+        )
+        pattern = "*.mono.pdf" if kind == "mono" else "*.dual.pdf"
+        target = next(iter(sorted(directory.glob(pattern))), None)
+        if target is None or not target.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload("translation_not_ready", "译文 PDF 还没生成。"),
+            )
+        return FileResponse(
+            target,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @application.get("/api/literature/{project_id}/translate-pdf/spread")
+    async def translate_pdf_spread(
+        project_id: str,
+        request: Request,
+        source_id: str = "",
+        pages: str = "",
+        index: int = 0,
+        dpi: int = 120,
+    ) -> dict[str, Any]:
+        """取第 index 组对照页：偶数页=原文、奇数页=译文，两侧各自栅格化成 PNG。
+
+        用图片而不是直接塞 PDF 给浏览器，是为了左右两栏严格同步、且不受
+        浏览器内置 PDF 阅读器是否支持双页并排的影响。
+        """
+        require_project_access(project_id, request)
+        source = _pdf_translate_source(project_id, source_id or None)
+        if source is None:
+            raise HTTPException(
+                status_code=404, detail=error_payload("no_pdf_source", "没有可用的 PDF 原文。")
+            )
+        data = _source_file_bytes(application, source)
+        if not data:
+            raise HTTPException(
+                status_code=404, detail=error_payload("source_file_unavailable", "原文缺失。")
+            )
+        directory = _pdf_translate_dir(
+            project_id, source.source_id, _pdf_translate_key_for(project_id, source.source_id, data, pages)
+        )
+        dual = next(iter(sorted(directory.glob("*.dual.pdf"))), None)
+        if dual is None or not dual.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=error_payload("translation_not_ready", "对照版 PDF 还没生成。"),
+            )
+        from core.pages import (
+            pdf_page_count,
+            pdf_page_size,
+            pdf_text_layer,
+            rasterize_page,
+        )
+
+        dual_bytes = dual.read_bytes()
+        total = pdf_page_count(dual_bytes) // 2
+        if total <= 0:
+            raise HTTPException(
+                status_code=404, detail=error_payload("no_spread", "对照版没有可用页。")
+            )
+        index = max(0, min(index, total - 1))
+        dpi = max(72, min(dpi, 300))
+        cache_dir = directory / "spreads"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        urls: dict[str, str] = {}
+        for side, page_idx in (("left", index * 2), ("right", index * 2 + 1)):
+            path = cache_dir / f"{side}_{index}_{dpi}.png"
+            if not path.is_file():
+                await asyncio.to_thread(
+                    rasterize_page, dual_bytes, page_idx, dpi, str(path)
+                )
+            urls[f"{side}_url"] = (
+                f"/api/literature/{project_id}/translate-pdf/spread-image"
+                f"?source_id={source.source_id}&pages={quote(pages)}"
+                f"&side={side}&index={index}&dpi={dpi}"
+            )
+        # 译文页文本层：dual PDF 的译文页本身就是真文本 PDF，把它的行坐标交给前端，
+        # 前端叠一层透明文字到页图上 —— 右栏因此也能划词、也有选中高亮（和左栏同一套做法）。
+        # \x03 是 pdf2zh 的分词占位符，换成空格，否则复制出来会夹控制字符。
+        # ⚠️ 行数/行序必须和 pdf_text_layer() 一模一样：前端拿行号当索引去画高亮、
+        #    去问 /link 对应关系，这里一丢行整个坐标就整体错位。所以只改文本、不删行。
+        right_idx = index * 2 + 1
+        right_lines = pdf_text_layer(dual_bytes, right_idx)
+        right_w, right_h = pdf_page_size(dual_bytes, right_idx)
+        return {
+            "index": index,
+            "total": total,
+            **urls,
+            "right_w": right_w,
+            "right_h": right_h,
+            "right_text_layer": [
+                {"bbox": line["bbox"], "text": _spread_line_text(line.get("text"))}
+                for line in right_lines
+            ],
+        }
+
+    @application.post("/api/literature/{project_id}/translate-pdf/link")
+    async def translate_pdf_link(
+        project_id: str, payload: LinkSpreadRequest, request: Request
+    ) -> dict[str, Any]:
+        """整页对照的跨栏联动：把「这一栏选中的几行」定位到对面那一栏的几行。
+
+        为什么必须问模型、不能按坐标推：pdf2zh 的 bilingual 版式**只保留图表的原位**，
+        正文段落是按译文长度重新排的（实测中文摘要变长把正文推下去，按 bbox 配对的
+        正文块会整片配错，28% 的块根本找不到对应）。所以这里走一次小范围的语义定位：
+        只把「选中的这几行」和「对面整页行」给模型，输出一个行区间 —— 输入输出都小，
+        实测 5/5 全中（连图注 "ground signal" → "接地 信号" 都对）。
+
+        行号口径：left 用**原件** PDF 的 text_layer（与 /pages 同源），
+        right 用 dual PDF 第 2*index+1 页（与 /spread 的 right_text_layer 同源），
+        这样前端拿页面上 span 的 data-line 直接当索引传进来就行。
+        """
+        require_project_access(project_id, request)
+        side = "right" if payload.side == "right" else "left"
+        start, end = min(payload.start, payload.end), max(payload.start, payload.end)
+        # 形状与命中时完全一致（含 cached）：前端一次解析、不用分叉判字段存不存在
+        miss = {
+            "ok": False,
+            "side": "right" if side == "left" else "left",
+            "start": -1,
+            "end": -1,
+            "reason": "",
+            "cached": False,
+        }
+
+        source = _pdf_translate_source(project_id, payload.source_id)
+        if source is None:
+            return {**miss, "reason": "no_pdf_source"}
+        data = _source_file_bytes(application, source)
+        if not data:
+            return {**miss, "reason": "source_file_unavailable"}
+        pages = (payload.pages or "").strip()
+        directory = _pdf_translate_dir(
+            project_id, source.source_id, _pdf_translate_key_for(project_id, source.source_id, data, pages)
+        )
+        dual = next(iter(sorted(directory.glob("*.dual.pdf"))), None)
+        if dual is None or not dual.is_file():
+            return {**miss, "reason": "translation_not_ready"}
+
+        from core.pages import pdf_page_count, pdf_text_layer
+
+        dual_bytes = dual.read_bytes()
+        total = pdf_page_count(dual_bytes) // 2
+        if total <= 0:
+            return {**miss, "reason": "no_spread"}
+        index = max(0, min(payload.index, total - 1))
+        left_lines = [_spread_line_text(ln.get("text")) for ln in pdf_text_layer(data, index)]
+        right_lines = [_spread_line_text(ln.get("text")) for ln in pdf_text_layer(dual_bytes, index * 2 + 1)]
+        from_lines, to_lines = (left_lines, right_lines) if side == "left" else (right_lines, left_lines)
+        if not to_lines or start >= len(from_lines):
+            return {**miss, "reason": "no_lines"}
+        end = min(end, len(from_lines) - 1)
+        target_side = "right" if side == "left" else "left"
+
+        cache_key = (project_id, source.source_id, index, side, start, end)
+        cache = _pdf_link_cache()
+        if cache_key in cache:
+            return {**cache[cache_key], "cached": True}
+
+        selected = " ".join(from_lines[start : end + 1])[:1200].strip()
+        if not selected:
+            return {**miss, "reason": "empty_selection"}
+        settings = application.state.settings
+        if not settings.tju_api_key and application.state.llm.responder is None:
+            return {**miss, "reason": "model_unavailable"}
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: application.state.llm.complete_json(
+                    "link_spread_selection",
+                    {
+                        "selected": selected,
+                        "candidates": [f"{i}: {t}" for i, t in enumerate(to_lines)],
+                    },
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - 定位失败只该「不高亮」，不该打断阅读
+            LOGGER.warning("spread link failed project=%s index=%s: %s", project_id, index, exc)
+            return {**miss, "reason": "model_error"}
+
+        try:
+            ts = int(result.get("start"))
+            te = int(result.get("end"))
+        except (TypeError, ValueError):
+            return {**miss, "reason": "bad_output"}
+        if ts > te:
+            ts, te = te, ts
+        # 区间校验：必须落在候选页里，且不能一口吞掉大半页（那是「没找到」的伪装）
+        span_limit = max(30, int(len(to_lines) * 0.5))
+        if ts < 0 or te < 0:
+            return {**miss, "reason": "no_match"}
+        if te >= len(to_lines) or te - ts + 1 > span_limit:
+            return {**miss, "reason": "out_of_range"}
+
+        hit = {"ok": True, "side": target_side, "start": ts, "end": te, "reason": ""}
+        if len(cache) > 600:
+            cache.clear()
+        cache[cache_key] = hit
+        return {**hit, "cached": False}
+
+    @application.get("/api/literature/{project_id}/translate-pdf/spread-image")
+    async def translate_pdf_spread_image(
+        project_id: str,
+        request: Request,
+        source_id: str = "",
+        pages: str = "",
+        side: str = "left",
+        index: int = 0,
+        dpi: int = 120,
+    ) -> FileResponse:
+        require_project_access(project_id, request)
+        source = _pdf_translate_source(project_id, source_id or None)
+        if source is None:
+            raise HTTPException(
+                status_code=404, detail=error_payload("no_pdf_source", "没有可用的 PDF 原文。")
+            )
+        data = _source_file_bytes(application, source)
+        if not data:
+            raise HTTPException(
+                status_code=404, detail=error_payload("source_file_unavailable", "原文缺失。")
+            )
+        dpi = max(72, min(dpi, 300))
+        path = (
+            _pdf_translate_dir(
+                project_id, source.source_id, _pdf_translate_key_for(project_id, source.source_id, data, pages)
+            )
+            / "spreads"
+            / f"{'right' if side == 'right' else 'left'}_{index}_{dpi}.png"
+        )
+        if not path.is_file():
+            raise HTTPException(
+                status_code=404, detail=error_payload("spread_not_rendered", "该页尚未渲染。")
+            )
+        return FileResponse(
+            path,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     @application.post("/api/literature/compare")
     def compare_literature(
         payload: CompareRequest, request: Request, refresh: bool = False
@@ -13639,6 +14190,116 @@ def create_app(
             {"question": question, "text": text[:_LITERATURE_EXTRACT_BUDGET]},
         )
         return {"answer": str(result.get("answer") or "")}
+
+    @application.post("/api/literature/{project_id}/evidence")
+    async def literature_evidence(
+        project_id: str, payload: AskRequest, request: Request
+    ) -> dict[str, Any]:
+        """给一个关键词/问题，返回「相关原文」清单：页码 + 坐标 + 相对置信度。
+
+        与 /ask 分开而不是合并成一次请求，是为了两件事：
+        ① 打分要能返回「哪几段相关」（结构化），而 /ask 返回的是一段散文；
+        ② 前端可以并行发这两个请求 —— 答案不等定位，定位也不等答案。
+
+        相对置信度只是「本次提问内部的相对名次」，不是概率、不是模型置信度。
+        折算公式在 core/lit_evidence.py（与 PaperFocus 逐项一致）。
+        """
+        require_project_access(project_id, request)
+        question = (payload.question or "").strip()
+        if not question:
+            raise HTTPException(
+                status_code=422,
+                detail=error_payload("missing_question", "请输入要在原文里定位的关键词或问题。"),
+            )
+        source = _literature_primary_source(project_id)
+        if source is None:
+            raise HTTPException(
+                status_code=422,
+                detail=error_payload(
+                    "source_file_unavailable",
+                    "这篇文献没有保留原 PDF，无法按页定位原文。",
+                ),
+            )
+        content = _source_file_bytes(application, source)
+        if not content:
+            raise HTTPException(
+                status_code=422,
+                detail=error_payload(
+                    "source_file_unavailable",
+                    "这篇文献没有保留原 PDF，无法按页定位原文。",
+                ),
+            )
+        from core import lit_evidence
+
+        meta = await asyncio.to_thread(_pages_meta_for_source, source, content)
+        if meta.get("is_scanned"):
+            return {
+                "question": question,
+                "units": [],
+                "total": 0,
+                "elapsed_ms": 0,
+                "reason": "scanned",
+            }
+        units = await asyncio.to_thread(lit_evidence.build_units, meta.get("pages") or [])
+        if not units:
+            return {
+                "question": question,
+                "units": [],
+                "total": 0,
+                "elapsed_ms": 0,
+                "reason": "no_text",
+            }
+        batches = lit_evidence.plan_batches(units)
+        started = time.perf_counter()
+
+        def _score(batch: list[dict[str, Any]]) -> dict[str, int]:
+            ids = [unit["id"] for unit in batch]
+            try:
+                raw = llm.complete_json(
+                    "lit_evidence_score",
+                    {"question": question, "units": {u["id"]: u["text"] for u in batch}},
+                )
+            except Exception as exc:  # noqa: BLE001
+                # 单批失败只丢这一批：剩下的批照常出结果，别让一次限流把整次定位清空
+                LOGGER.warning("lit_evidence batch failed: %s", exc)
+                return {}
+            return lit_evidence.coerce_scores(raw, ids)
+
+        scores: dict[str, int] = {}
+        if batches:
+            workers = min(4, len(batches))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_score, batch) for batch in batches]
+                for future in as_completed(futures):
+                    try:
+                        scores.update(future.result())
+                    except Exception as exc:  # noqa: BLE001
+                        LOGGER.warning("lit_evidence worker failed: %s", exc)
+
+        confidence = lit_evidence.salience_map(scores)
+        out = [
+            {
+                "id": unit["id"],
+                "page": unit["page"],
+                "bbox": unit["bbox"],
+                "text": unit["text"],
+                "score": scores[unit["id"]],
+                "confidence": confidence.get(unit["id"], 0),
+            }
+            for unit in units
+            if unit["id"] in scores
+        ]
+        # 列表默认按原文顺序展示（前端还能切成相关性），后端只保证顺序稳定
+        out.sort(key=lambda item: item["id"])
+        return {
+            "question": question,
+            "units": out,
+            "total": len(out),
+            "scored": len(out),
+            "batches": len(batches),
+            "elapsed_ms": round((time.perf_counter() - started) * 1000),
+            "reason": "",
+        }
 
     @application.post("/api/literature/{project_id}/insights")
     def literature_insights(
@@ -14255,37 +14916,8 @@ def create_app(
                     "该材料导入时未保留原文件，无法读取页面结构。",
                 ),
             )
-        from core.pages import build_pages_meta
-
-        pages_dir = (
-            application.state.source_previews_dir
-            / source.project_id
-            / source.source_id
-            / "pages"
-        )
-        pages_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = pages_dir / "pages_meta.json"
-        src_path = _source_file_path(application, source)
-        key = (
-            f"{src_path.stat().st_mtime_ns}:{src_path.stat().st_size}"
-            if src_path.is_file()
-            else "inmem"
-        )
-        # 磁盘缓存命中（同一源文件未变更）则直接复用，避免成百上千页时每次重建拖慢首屏
-        try:
-            if cache_path.is_file():
-                cached = json.loads(cache_path.read_text(encoding="utf-8"))
-                if cached.get("_key") == key:
-                    return cached
-        except Exception:  # noqa: BLE001
-            pass
-        meta = await asyncio.to_thread(build_pages_meta, content)
-        meta["_key"] = key
-        try:
-            cache_path.write_text(json.dumps(meta), encoding="utf-8")
-        except Exception:  # noqa: BLE001
-            pass
-        return meta
+        # 缓存键 / 建页逻辑集中在 _pages_meta_for_source（文献「相关原文」共用同一份）
+        return await asyncio.to_thread(_pages_meta_for_source, source, content)
 
     @application.get("/api/projects/{project_id}/sources/{source_id}/page-crop")
     async def source_page_crop(
@@ -26410,12 +27042,37 @@ def create_app(
         if not refresh:
             cached = await asyncio.to_thread(store.get, doc_key)
             if cached and cached.get("signature") == signature and cached.get("content_md"):
+                # 缓存命中也要如实汇报回流结果：上次存下的 content 里就有 self_check，
+                # 拿它重算一遍（sync_cards 是 upsert + 只回收自己前缀的卡，幂等且便宜）。
+                # 不做这一步，「一键生成整份文档」第二次点全是缓存命中，
+                # 批量路径累加不到 synced>0，那句「另把 N 道自测题加入知识卡片」就永远不出现。
+                cached_sync: dict[str, Any] = {
+                    "synced": 0, "updated": 0, "removed": 0, "card_ids": [],
+                    "skipped": not sync_cards,
+                }
+                if sync_cards:
+                    try:
+                        cached_sync = await asyncio.to_thread(
+                            knowledge_doc_mod.sync_cards,
+                            db,
+                            project_id,
+                            node_id=node_id,
+                            wanted=knowledge_doc_mod.build_sync_cards(
+                                cached.get("content") or {},
+                                node_id=node_id,
+                                source_ids=[getattr(s, "source_id", "") for s in scoped_sources],
+                            ),
+                        )
+                    except Exception as exc:  # noqa: BLE001 —— 回流是附加价值，不是文档的成败
+                        LOGGER.warning("knowledge_doc 自测回流失败（缓存命中）：%s", exc)
+                        cached_sync = {**cached_sync, "error": str(exc)}
                 return {
                     **cached,
                     "cached": True,
                     "degraded": False,
                     "stale_sections": [],
                     "source_scope": source_scope,
+                    "check_cards": cached_sync,
                 }
 
         payload = knowledge_doc_mod.build_node_payload(

@@ -972,7 +972,9 @@
 
   function onGripMove(event) {
     if (!GRIP_DRAG) return;
-    var dx = event.clientX - GRIP_DRAG.startX;
+    // 指针位移是视觉像素、宽度是设计像素：界面整体缩放时先除回设计像素。
+    var scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+    var dx = (event.clientX - GRIP_DRAG.startX) / scale;
     // 左边往右拖 = 变宽；右边往右拖 = 变窄，方向相反
     var want = GRIP_DRAG.side === "left" ? GRIP_DRAG.startW + dx : GRIP_DRAG.startW - dx;
     applyGrip(GRIP_DRAG.side, clampGrip(GRIP_DRAG.side, want));
@@ -1245,6 +1247,9 @@
     }
     var width = (typeof window !== "undefined" && window.innerWidth) || 1200;
     var height = (typeof window !== "undefined" && window.innerHeight) || 800;
+    // style.left/top 是设计像素，innerWidth/innerHeight 是视觉像素：先除回界面缩放。
+    var sc = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+    width = width / sc; height = height / sc;
     var top = rect && rect.top ? rect.top - 46 : height / 2;
     top = Math.max(56, top);
     bar.style.top = Math.round(top) + "px";
@@ -2151,9 +2156,13 @@
           {}
         );
         // 累加整批的回流结果，收尾时一次性广播 + 一次性告知，别一个节点弹一次。
+        // 只算「这一轮真正新写进去的」：synced 是卡总数，updated 是其中本来就存在的，
+        // 两者之差才是新增。不这么算的话，第二次点「一键生成整份文档」全是缓存命中，
+        // 会拿一堆早就加过的卡谎报「另把 N 道自测题加入知识卡片」。
         var cc = one && one.check_cards;
         if (cc && !cc.skipped && !cc.error) {
-          batchCards.synced += cc.synced || 0;
+          var fresh = (cc.synced || 0) - (cc.updated || 0);
+          batchCards.synced += fresh > 0 ? fresh : 0;
           batchCards.removed += cc.removed || 0;
         }
       } catch (error) {
@@ -2307,10 +2316,21 @@
     VIEW.nodeId = nodeId;
     renderDoc(doc, "node");
     // 如实回报回流结果，不让「多了几张卡」变成用户要去别处发现的意外。
+    // 同上：只报这一轮真正新写进去的（synced 是总数，updated 是本来就存在的）。
+    // 缓存命中时两者相等 → fresh 为 0 → 不重复告知「已加入 N 道题」，也不重复广播。
     var cc = doc && doc.check_cards;
-    if (cc && !cc.skipped && !cc.error && cc.synced > 0) {
-      notify("已把 " + cc.synced + " 道自测题加入知识卡片，可在复习队列里遇到。", "success");
-      announceCardsChanged(cc);
+    if (cc && !cc.skipped && !cc.error) {
+      var freshCards = (cc.synced || 0) - (cc.updated || 0);
+      if (freshCards > 0) {
+        notify(
+          "已把 " + freshCards + " 道自测题加入知识卡片，可在复习队列里遇到。",
+          "success"
+        );
+        announceCardsChanged({ synced: freshCards, removed: cc.removed || 0 });
+      } else if (doc.cached && cc.removed > 0) {
+        // 缓存命中也可能回收了失效卡，照样得通知列表重拉
+        announceCardsChanged({ synced: 0, removed: cc.removed });
+      }
     }
   }
 

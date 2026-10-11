@@ -64,6 +64,9 @@ third_party/
 *.avi
 *.mov
 *.mp4
+# 例外：神经图谱的发光水母 / 光球素材（约 9 MB，PolyForm Noncommercial，只读引用）。
+# 它们是这一层的核心观感，必须随仓库走；来源与许可义务见 NOTICE.md §2.1。
+!static/vendor/neural-creator-dashboard/media/*.mp4
 test-main.zip
 
 # Submission documents (not code)

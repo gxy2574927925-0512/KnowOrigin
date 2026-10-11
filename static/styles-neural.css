@@ -147,6 +147,26 @@ body.ko-nv-open #hxt-pet { display: none !important; }
 }
 @keyframes ko-nv-breathe { 50% { transform: scale(1.045); } }
 
+/* 上游素材 orb.mp4（PolyForm NC，见 NOTICE.md §2.1）：径向遮罩把它的浅灰底裁掉，
+   只留中间那颗发光球体（遮罩参数照搬上游做法）。只在深色层出现，
+   浅色层继续用 .ko-nv-orb-core 那套「描边 + 投影」材质。 */
+.ko-nv-orb-vid {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  display: none; pointer-events: none;
+  -webkit-mask-image: radial-gradient(circle closest-side at 50% 50%, #000 58%, rgba(0, 0, 0, .5) 82%, transparent 100%);
+  mask-image: radial-gradient(circle closest-side at 50% 50%, #000 58%, rgba(0, 0, 0, .5) 82%, transparent 100%);
+  filter: brightness(.86) contrast(1.1);
+}
+.ko-nv-layer.ko-nv-has-video .ko-nv-orb-vid { display: block; }
+/* 有视频就别再叠 CSS 光球：两个球叠一起会糊成一团 */
+.ko-nv-layer.ko-nv-has-video .ko-nv-orb-core { opacity: 0; animation: none; }
+
+/* 水母视频源：只负责解码，画面逐帧 blit 到各模块的 canvas；自身不可见、不吃事件 */
+.ko-nv-media-src {
+  position: absolute; left: 0; top: 0; width: 2px; height: 2px;
+  opacity: 0; pointer-events: none;
+}
+
 /* 模块（= 顶层知识节点）与条目（= 下级节点） */
 .ko-nv-mod {
   position: absolute; left: 0; top: 0; width: 96px; height: 96px; padding: 0;
@@ -187,6 +207,73 @@ body.ko-nv-open #hxt-pet { display: none !important; }
 .ko-nv-mod-count { font-size: 17px; font-weight: 600; line-height: 1; color: var(--nv-text); }
 .ko-nv-mod-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nv-mod); box-shadow: 0 0 8px var(--nv-mod); }
 
+/* —— 发光水母：伞盖（呼吸光晕）+ 触须（下垂摆动）——
+   形态全部长在 .ko-nv-mod **内部**，且只做 transform / opacity 动画：
+   按钮自身的尺寸与位置不变，所以标签摆放与探针量的几何一行都不受影响。 */
+.ko-nv-mod-bell {
+  position: absolute; inset: -18%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle closest-side,
+    transparent 56%,
+    color-mix(in srgb, var(--nv-mod, #c9d6e0) 46%, transparent) 66%,
+    color-mix(in srgb, var(--nv-mod, #c9d6e0) 15%, transparent) 80%,
+    transparent 97%);
+  animation: ko-nv-bell 4.6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+@keyframes ko-nv-bell { 50% { transform: scale(1.12); opacity: .68; } }
+
+.ko-nv-mod-tentacles {
+  position: absolute; left: 50%; top: 52%; width: 62%; height: 66%;
+  transform: translateX(-50%);
+  transition: transform .45s ease, opacity .45s ease;
+  pointer-events: none;
+}
+.ko-nv-mod-tentacles i {
+  position: absolute; top: 0; width: 3px; border-radius: 3px;
+  transform-origin: 50% 0;
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--nv-mod, #c9d6e0) 96%, transparent), transparent 94%);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--nv-mod, #c9d6e0) 55%, transparent);
+  animation: ko-nv-tentacle 3.8s ease-in-out infinite;
+}
+.ko-nv-mod-tentacles i:nth-child(1) { left: 4%;  height: 84%; --ko-amp: 9deg;  animation-delay: -.10s; }
+.ko-nv-mod-tentacles i:nth-child(2) { left: 25%; height: 100%; --ko-amp: -7deg; animation-delay: -.85s; }
+.ko-nv-mod-tentacles i:nth-child(3) { left: 47%; height: 92%; --ko-amp: 6deg;  animation-delay: -1.6s; }
+.ko-nv-mod-tentacles i:nth-child(4) { left: 69%; height: 100%; --ko-amp: -9deg; animation-delay: -2.3s; }
+.ko-nv-mod-tentacles i:nth-child(5) { left: 90%; height: 80%; --ko-amp: 8deg;  animation-delay: -3.0s; }
+@keyframes ko-nv-tentacle {
+  0%, 100% { transform: rotate(var(--ko-amp, 7deg)) scaleY(.92); }
+  50%      { transform: rotate(calc(var(--ko-amp, 7deg) * -.7)) scaleY(1.04); }
+}
+
+/* 切换动效：进到某一层 → 水母「收伞」（触须收回、伞盖提亮）；回总览再张开。
+   其余水母整体由 JS 按 opacity 压暗，这里只管形态。 */
+.ko-nv-stage[data-stage="module"] .ko-nv-mod-tentacles,
+.ko-nv-stage[data-stage="note"] .ko-nv-mod-tentacles { opacity: .22; transform: translateX(-50%) scaleY(.42); }
+.ko-nv-mod.is-active .ko-nv-mod-bell { filter: brightness(1.3) saturate(1.15); }
+
+/* 上游素材 jellyfish.mp4：黑底无 alpha，靠 screen 混合把黑底滤掉（白底上会隐形，
+   所以只在深色层出现，见 .ko-nv-has-video）。画布由 JS 逐帧从水母视频贴过来。 */
+.ko-nv-mod-vid {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  display: none; pointer-events: none;
+  mix-blend-mode: screen;
+  transition: opacity .45s ease, transform .45s ease;
+  -webkit-mask-image: radial-gradient(ellipse 62% 64% at 50% 46%, #000 55%, transparent 100%);
+  mask-image: radial-gradient(ellipse 62% 64% at 50% 46%, #000 55%, transparent 100%);
+}
+.ko-nv-layer.ko-nv-has-video .ko-nv-mod-vid { display: block; }
+/* 有视频时收掉自绘的球体与触须，只留伞盖光晕（视频自己会发光） */
+.ko-nv-layer.ko-nv-has-video .ko-nv-mod-core,
+.ko-nv-layer.ko-nv-has-video .ko-nv-mod-tentacles { opacity: 0; }
+/* 「收伞」切换动效对视频同样生效：进层时把水母压扁淡出（自绘触须走上面那条，
+   视频画布走这条）—— 换素材不能把动效弄丢 */
+.ko-nv-stage[data-stage="module"] .ko-nv-mod-vid,
+.ko-nv-stage[data-stage="note"] .ko-nv-mod-vid {
+  opacity: .3;
+  transform: scaleY(.5) translateY(-14%);
+}
+
 .ko-nv-item {
   position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 9px; height: 30px;
   padding: 0; border: 0; background: none; color: var(--nv-text); text-align: left; will-change: transform, opacity;
@@ -211,13 +298,60 @@ body.ko-nv-open #hxt-pet { display: none !important; }
 .ko-nv-stage[data-stage="module"] .ko-nv-copy,
 .ko-nv-stage[data-stage="note"] .ko-nv-copy { opacity: 0; transform: translateY(-10px); }
 .ko-nv-copy h2 {
-  margin: 0; font-size: clamp(26px, 2.6vw, 38px); line-height: 1.18; font-weight: 600; letter-spacing: .02em;
-  background: linear-gradient(120deg, #ffffff 30%, #d6d7d3 62%, #e6cf98);
+  margin: 0; font-size: clamp(26px, calc(2.6 * var(--vwi)), 38px); line-height: 1.18; font-weight: 600; letter-spacing: .02em;
+  /* 走 token 而不是写死深色那套白→银→金：浅色模式下白字落在暖纸底上等于看不见
+     （--nv-title-grad 深色值与原来写死的完全相同，深色观感零变化）。 */
+  background: var(--nv-title-grad);
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .ko-nv-copy p { margin: 8px 0 0; font-size: 12.5px; color: var(--nv-text-2); }
 .ko-nv-copy .ko-nv-hint { color: var(--nv-gold); opacity: .9; font-size: 11.5px; }
 @keyframes ko-nv-fade { from { opacity: 0; transform: translateY(12px); } }
+
+/* —— 目录索引（借鉴 neural-vault 的「图例 + 分组浏览」）——
+   上游的「一级目录」在知源里就是顶层节点（= 本视图的模块），所以这里不新造分组，
+   只把已有分组列成一份可滚动清单：色点 + 名称 + 下级数量。
+   位置刻意压在**左下角**：左上角是 hero 文案，中心椭圆留给模块本身。
+   max-height 收在 38% / 260px 以内，是为了不压到左侧那一圈模块标签（探针会量）。 */
+.ko-nv-dirs {
+  position: absolute; left: 34px; bottom: 22px; z-index: 4;
+  width: 248px; max-height: min(38%, 260px);
+  display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 16px; border: 1px solid var(--nv-line);
+  background: var(--nv-glass);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  animation: ko-nv-fade .4s both;
+}
+.ko-nv-dirs[hidden] { display: none; }
+.ko-nv-dirs header { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--nv-line); }
+.ko-nv-dirs-title { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; }
+.ko-nv-dirs-count { font-size: 12px; color: var(--nv-gold); }
+.ko-nv-dirs-toggle { margin-left: auto; width: 22px; height: 22px; font-size: 13px; line-height: 1; }
+.ko-nv-dirs-list { flex: 1; min-height: 0; overflow: auto; padding: 6px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .16) transparent; }
+.ko-nv-dir {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: 1px solid transparent; border-radius: 9px; background: none; text-align: left;
+  transition: background .2s, border-color .2s;
+}
+.ko-nv-dir i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--nv-dc); box-shadow: 0 0 8px var(--nv-dc); }
+.ko-nv-dir-name { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ko-nv-dir small { flex: none; font-size: 10.5px; color: var(--nv-text-2); }
+.ko-nv-dir:hover { background: rgba(255, 255, 255, .06); border-color: var(--nv-line); }
+.ko-nv-dir.is-focus {
+  border-color: color-mix(in srgb, var(--nv-dc) 60%, transparent);
+  background: color-mix(in srgb, var(--nv-dc) 14%, transparent);
+}
+.ko-nv-dir.is-focus small { color: var(--nv-gold); }
+.ko-nv-dirs footer { padding: 7px 10px; border-top: 1px solid var(--nv-line); }
+.ko-nv-dirs footer[hidden] { display: none; }
+.ko-nv-dirs footer .ko-nv-pill { width: 100%; justify-content: center; }
+/* 收起：只剩表头一颗胶囊，别在窄屏上占掉半张舞台 */
+.ko-nv-dirs.is-collapsed { width: auto; min-width: 136px; max-height: none; }
+.ko-nv-dirs.is-collapsed .ko-nv-dirs-list,
+.ko-nv-dirs.is-collapsed footer { display: none; }
+.ko-nv-dirs.is-collapsed header { border-bottom: 0; }
+/* 被聚焦的那个模块的标签也描一圈 —— 光靠球变大不够明显 */
+.ko-nv-mod-label.is-focus { border-color: color-mix(in srgb, var(--nv-mod) 65%, transparent); }
 
 /* 提示条 */
 .ko-nv-stage-hint {
@@ -229,7 +363,7 @@ body.ko-nv-open #hxt-pet { display: none !important; }
 
 /* —— 右侧分析栏 —— */
 .ko-nv-panel {
-  position: absolute; right: 18px; top: 14px; bottom: 14px; width: clamp(380px, 33vw, 500px);
+  position: absolute; right: 18px; top: 14px; bottom: 14px; width: clamp(380px, calc(33 * var(--vwi)), 500px);
   display: flex; flex-direction: column; overflow: hidden;
   border-radius: 20px; border: 1px solid rgba(236, 236, 232, .15);
   background: linear-gradient(165deg, rgba(52, 53, 52, .74), rgba(14, 15, 15, .92) 55%);
@@ -311,12 +445,12 @@ button.ko-nv-chip:hover { background: color-mix(in srgb, var(--nv-kc, #9db3af) 2
 .ko-nv-answers {
   position: absolute; left: 20px; right: auto; bottom: 100%;
   /* 右侧要让开分析栏（否则长句的右半截被侧边栏压住看不见） */
-  width: min(780px, calc(100vw - 600px));
-  margin-bottom: 8px; max-height: min(42vh, 380px); overflow: auto;
+  width: min(780px, calc(var(--vw) - 600px));
+  margin-bottom: 8px; max-height: min(calc(42 * var(--vhi)), 380px); overflow: auto;
   padding: 12px; border-radius: 16px; border: 1px solid var(--nv-line-2);
   background: var(--nv-glass); animation: ko-nv-fade .3s both;
 }
-@media (max-width: 900px) { .ko-nv-answers { width: calc(100vw - 40px); } }
+@media (max-width: 900px) { .ko-nv-answers { width: calc(var(--vw) - 40px); } }
 .ko-nv-answers[hidden] { display: none; }
 .ko-nv-answers header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; }
 .ko-nv-answers header small { color: var(--nv-muted); font-weight: 400; letter-spacing: 0; font-size: 11px; }
@@ -400,7 +534,7 @@ button.ko-nv-chip:hover { background: color-mix(in srgb, var(--nv-kc, #9db3af) 2
 .ko-nv-a-body code { padding: 1px 5px; border-radius: 5px; font-size: 12px; background: rgba(255, 255, 255, .08); color: var(--nv-gold); }
 .ko-nv-typing { color: var(--nv-text-2); }
 .ko-nv-err { color: #ffb0bb; }
-.ko-nv-answers { max-height: min(58vh, 520px); }
+.ko-nv-answers { max-height: min(calc(58 * var(--vhi)), 520px); }
 
 /* 空态 */
 .ko-nv-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; padding: 40px; }
@@ -428,11 +562,17 @@ button.ko-nv-chip:hover { background: color-mix(in srgb, var(--nv-kc, #9db3af) 2
   .ko-nv-top .ko-nv-kpis div { padding: 5px 9px; gap: 5px; }
   .ko-nv-copy { left: 16px; top: 16px; }
   .ko-nv-copy h2 { font-size: 22px; }
+  /* 窄屏：模块标签已经贴着舞台边缘，索引再摆 248px 就压上去了 —— 收窄并压低 */
+  .ko-nv-dirs { left: 12px; bottom: 12px; width: 200px; max-height: 34%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* ⚠️ `animation-iteration-count: 1` 不能省：只把 duration 压到 .01ms 而仍让它无限循环，
+     动画会以 ~100fps 反复重放 —— 观感是「抖」而不是「静」（呼吸光球尤其明显）。
+     加上它，动画跑完一遍就停在最后一帧，才真的静止。 */
   .ko-nv-layer *, .ko-nv-layer *::before, .ko-nv-layer *::after {
-    animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important;
+    animation-duration: .01ms !important; animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important; transition-duration: .01ms !important;
   }
 }
 
@@ -535,6 +675,35 @@ html[data-theme="light"] .ko-nv-layer .ko-nv-mod-core {
   box-shadow: 0 3px 10px rgba(88, 80, 64, .16);
 }
 html[data-theme="light"] .ko-nv-layer .ko-nv-mod-label { background: rgba(255, 253, 248, .92); }
+/* 水母的伞盖 / 触须：浅色下同一份 color-mix 会糊在纸底上，把占比压深一档 */
+html[data-theme="light"] .ko-nv-layer .ko-nv-mod-bell {
+  background: radial-gradient(circle closest-side,
+    transparent 54%,
+    color-mix(in srgb, var(--nv-mod, #8d99a4) 58%, transparent) 66%,
+    color-mix(in srgb, var(--nv-mod, #8d99a4) 22%, transparent) 82%,
+    transparent 97%);
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-mod-tentacles i {
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--nv-mod, #8d99a4) 96%, transparent), transparent 92%);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--nv-mod, #8d99a4) 40%, transparent);
+}
+/* 浅色下的水母视频：黑底反相成白底，multiply 对白底是恒等（等于透明），
+   纸上于是留下一只**线描质地**的水母；hue-rotate(180deg) 把被 invert 带偏的
+   色相转回来，金光照旧。同一个素材文件，深浅两套不用各做一份。 */
+html[data-theme="light"] .ko-nv-layer .ko-nv-mod-vid {
+  mix-blend-mode: multiply;
+  filter: invert(1) hue-rotate(180deg) contrast(1.3) saturate(1.15);
+}
+/* 浅色下 orb.mp4 沿用遮罩版：它在暖纸底上是一颗深色火球，反差正好立得住 */
+html[data-theme="light"] .ko-nv-layer .ko-nv-orb-vid { filter: brightness(.92) contrast(1.12) saturate(1.05); }
+/* 目录索引：悬停 / 聚焦的底是深色写死的（半透明白），浅色下换成压深的纸色 */
+html[data-theme="light"] .ko-nv-layer .ko-nv-dirs { box-shadow: 0 12px 32px rgba(88, 80, 64, .12); }
+html[data-theme="light"] .ko-nv-layer .ko-nv-dir:hover { background: rgba(45, 42, 38, .05); }
+html[data-theme="light"] .ko-nv-layer .ko-nv-dir.is-focus {
+  background: color-mix(in srgb, var(--nv-dc) 16%, rgba(255, 253, 248, .9));
+}
+html[data-theme="light"] .ko-nv-layer .ko-nv-dirs-list { scrollbar-color: rgba(45, 42, 38, .2) transparent; }
 /* 选中态的底是深色写死的（rgba(18,19,19,.82)），浅色下要换成纸底 */
 html[data-theme="light"] .ko-nv-layer .ko-nv-item.is-active .ko-nv-item-body {
   background: color-mix(in srgb, var(--nv-kc) 16%, rgba(255, 253, 248, .92));

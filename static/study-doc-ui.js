@@ -796,7 +796,9 @@
 
   function onGripMove(event) {
     if (!GRIP_DRAG) return;
-    var dx = event.clientX - GRIP_DRAG.startX;
+    // 指针位移是视觉像素、宽度是设计像素：界面整体缩放时先除回设计像素。
+    var scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+    var dx = (event.clientX - GRIP_DRAG.startX) / scale;
     // 左边往右拖 = 变宽；右边往右拖 = 变窄，方向相反
     var want = GRIP_DRAG.side === "left" ? GRIP_DRAG.startW + dx : GRIP_DRAG.startW - dx;
     applyGrip(GRIP_DRAG.side, clampGrip(GRIP_DRAG.side, want));
@@ -1065,7 +1067,9 @@
     if (!bar || !rect) return;
     if (bar.classList) bar.classList.add("ko-sd-is-on");
     var width = bar.offsetWidth || 200;
-    var left = Math.max(12, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 12));
+    // style.left 是设计像素，rect/innerWidth 是视觉像素：先除回界面缩放。
+    var sc = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+    var left = Math.max(12, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth / sc - width - 12));
     var top = rect.top - (bar.offsetHeight || 40) - 8;
     if (top < 12) top = rect.bottom + 8;
     bar.style.left = left + "px";

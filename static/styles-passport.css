@@ -45,7 +45,7 @@ html[data-kb-passport="open"] .kb-passport-host {
   align-self: start;
   position: sticky;
   top: 0;
-  max-height: calc(100vh - 16px);
+  max-height: calc(calc(100 * var(--vhi)) - 16px);
   overflow: hidden;
   width: var(--kp-w, 420px);
   min-width: 0;
@@ -118,7 +118,7 @@ html[data-kb-passport="open"] .kb-passport-host {
   background: var(--panel, #fffdf8); color: var(--muted, #777168);
 }
 .kb-mec-toggle:hover { border-color: var(--green, #6b9e5c); color: var(--green-dark, #4f7d43); }
-/* ⚠️ 这里**不能**再做成滚动区（原来是 max-height:40vh + overflow-y:auto +
+/* ⚠️ 这里**不能**再做成滚动区（原来是 max-height:calc(40 * var(--vhi)) + overflow-y:auto +
    overscroll-behavior:contain）。图谱下方整块是跟着 #studio-output 一起滚的，
    卡片正文自己再滚一层，就变成「鼠标停在推导 / 自检上滚不动，得把指针挪到空白处
    才滚得动」：滚轮被卡在卡片里，contain 又把滚动链截断，一个滚不动的小盒子

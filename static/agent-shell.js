@@ -554,10 +554,12 @@
       head.setPointerCapture?.(event.pointerId);
 
       const onMove = (moveEvent) => {
-        const left = startLeft + (moveEvent.clientX - event.clientX);
-        const top = startTop + (moveEvent.clientY - event.clientY);
-        const maxLeft = Math.max(0, panelRect.width - box.offsetWidth - 8);
-        const maxTop = Math.max(0, panelRect.height - box.offsetHeight - 8);
+        // offsetLeft/offsetWidth 是设计像素，指针位移与 panelRect 是视觉像素：先除回设计像素。
+        const scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+        const left = startLeft + (moveEvent.clientX - event.clientX) / scale;
+        const top = startTop + (moveEvent.clientY - event.clientY) / scale;
+        const maxLeft = Math.max(0, panelRect.width / scale - box.offsetWidth - 8);
+        const maxTop = Math.max(0, panelRect.height / scale - box.offsetHeight - 8);
         box.style.left = `${Math.min(Math.max(0, left), maxLeft)}px`;
         box.style.top = `${Math.min(Math.max(0, top), maxTop)}px`;
         box.style.right = "auto";
@@ -601,10 +603,11 @@
       <div class="agent-suggested-menu-sep"></div>
       <button type="button" data-agent-suggested="reset">恢复默认位置</button>`;
     document.body.append(menu);
-    // 贴视口边缘时自动内收
+    // 贴视口边缘时自动内收。clientX 与 rect 是视觉像素，style.left 是设计像素：先除回界面缩放。
+    const scale = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
     const rect = menu.getBoundingClientRect();
-    menu.style.left = `${Math.min(x, window.innerWidth - rect.width - 8)}px`;
-    menu.style.top = `${Math.min(y, window.innerHeight - rect.height - 8)}px`;
+    menu.style.left = `${Math.min(x / scale, window.innerWidth / scale - rect.width / scale - 8)}px`;
+    menu.style.top = `${Math.min(y / scale, window.innerHeight / scale - rect.height / scale - 8)}px`;
     menu.addEventListener("click", (event) => {
       const action = event.target.closest("[data-agent-suggested]")?.dataset.agentSuggested;
       if (action === "toggle") suggested.setEnabled(!suggested.enabled());
@@ -749,8 +752,10 @@
       <div class="agent-suggested-menu-sep"></div>
       <button type="button" data-agent-session-action="delete" class="is-danger">删除会话</button>`;
     document.body.append(menu);
-    menu.style.left = `${Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)}px`;
-    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
+    // style.left/top 是设计像素，rect/innerWidth 是视觉像素：先除回界面缩放。
+    const sc = (window.KnowOriginUiScale && window.KnowOriginUiScale.scale()) || 1;
+    menu.style.left = `${Math.min(rect.left, window.innerWidth / sc - menu.offsetWidth - 8)}px`;
+    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight / sc - menu.offsetHeight - 8)}px`;
     menu.addEventListener("click", (event) => {
       const action = event.target.closest("[data-agent-session-action]")?.dataset.agentSessionAction;
       closeSessionMenu();

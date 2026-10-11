@@ -481,7 +481,7 @@ html[data-theme="dark"] #hxt-pet .hxt-growth { background: rgba(126, 164, 232, 0
 /* ---------- 知识花园：让掌握度可视化成一株株海棠 ---------- */
 .hxt-garden-open {
   width: 340px;
-  max-width: 92vw;
+  max-width: calc(92 * var(--vwi));
 }
 .hxt-garden { margin-top: 6px; }
 .hxt-garden-legend {
@@ -589,9 +589,9 @@ html[data-theme="dark"] .hxt-diary-line { color: #c9dbf3; }
   bottom: 20px;
   z-index: 2147483010; /* 高于桌宠本体 */
   width: 486px;
-  max-width: 95vw;
+  max-width: calc(95 * var(--vwi));
   height: 660px;
-  max-height: 88vh;
+  max-height: calc(88 * var(--vhi));
   display: flex;
   flex-direction: column;
   background: var(--hxt-white);

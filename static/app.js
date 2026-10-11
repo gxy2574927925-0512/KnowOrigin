@@ -289,34 +289,112 @@ function setGlow(glow) {
 }
 window.KnowOriginCardGlow = { current: currentGlow, apply: applyGlow, set: setGlow };
 
-// —— 全局字体缩放：设置 :root 的 --font-scale，全库 px 字号（styles.css 与各 UI 的 font-size）
-//    都写成 calc(Npx * var(--font-scale, 1))，调档只放大文字、布局尺寸与边框完全不动。
-//    不用 <html> 的 zoom：非整数缩放的亚像素取整会让严丝合缝的面板布局漂移（实测 XMind 按钮换行）。 ——
+// —— 全局字体缩放（只放大文字，布局不动）——
+//    设置 :root 的 --font-scale，全库 px 字号（styles.css 与各 UI 的 font-size）都写成
+//    calc(Npx * var(--font-scale, 1))。连续可调：滑块给的是「界面基准字号」px（基准 13px），
+//    换算 --font-scale = px / 13 —— 11~20px 即 0.85~1.54 倍。
+//    ⚠️ 这里刻意「不用 zoom」：纯文字缩放若用 zoom，非整数缩放的亚像素取整会让严丝合缝的
+//    面板布局漂移（实测 XMind 按钮换行）。要整体缩放请走下面的 --ui-scale（那一版是刻意的）。
 const FONT_ZOOM_STORAGE_KEY = "knoworigin-font-zoom";
-const FONT_ZOOM_STEPS = ["1", "1.15", "1.3", "1.45"];
+const FONT_BASE_PX = 13;      // 界面基准字号：--font-scale = 目标 px / 13
+const FONT_PX_MIN = 11;
+const FONT_PX_MAX = 20;
+const FONT_PX_DEFAULT = 13;
+function clampFontScale(scale) {
+  const n = Number(scale);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return Math.min(FONT_PX_MAX / FONT_BASE_PX, Math.max(FONT_PX_MIN / FONT_BASE_PX, n));
+}
+function fontScaleToPx(scale) { return Math.round(clampFontScale(scale) * FONT_BASE_PX); }
 function currentFontZoom() {
-  try {
-    const v = localStorage.getItem(FONT_ZOOM_STORAGE_KEY);
-    return FONT_ZOOM_STEPS.includes(v) ? v : "1";
-  } catch { return "1"; }
+  try { return clampFontScale(localStorage.getItem(FONT_ZOOM_STORAGE_KEY)); } catch { return 1; }
 }
-function syncFontZoomSegments(zoom) {
-  $$(".settings-segmented-btn[data-font-zoom-value]").forEach((btn) => {
-    btn.setAttribute("aria-pressed", String(btn.dataset.fontZoomValue === zoom));
+function syncFontZoomControls(scale) {
+  const px = fontScaleToPx(scale);
+  // --pct：轨道已选区间的填充位置（见 .settings-range 的 linear-gradient）
+  const pct = ((px - FONT_PX_MIN) / (FONT_PX_MAX - FONT_PX_MIN)) * 100;
+  $$("[data-font-size-range]").forEach((input) => {
+    if (input.value !== String(px)) input.value = String(px);
+    input.style.setProperty("--pct", `${pct.toFixed(2)}%`);
   });
+  $$("[data-font-size-out]").forEach((out) => { out.textContent = `${px} px`; });
 }
-function applyFontZoom(zoom) {
-  const next = FONT_ZOOM_STEPS.includes(zoom) ? zoom : "1";
-  document.documentElement.style.setProperty("--font-scale", next);
-  // 清掉旧方案的 inline zoom 残留（zoom 不持久，这里只是防御）
-  document.documentElement.style.removeProperty("zoom");
-  syncFontZoomSegments(next);
+function applyFontZoom(scale) {
+  const next = clampFontScale(scale);
+  document.documentElement.style.setProperty("--font-scale", String(next));
+  syncFontZoomControls(next);
 }
-function setFontZoom(zoom) {
-  try { localStorage.setItem(FONT_ZOOM_STORAGE_KEY, zoom); } catch {}
-  applyFontZoom(zoom);
+function setFontZoom(scale) {
+  const next = clampFontScale(scale);
+  try { localStorage.setItem(FONT_ZOOM_STORAGE_KEY, String(next)); } catch {}
+  applyFontZoom(next);
 }
-window.KnowOriginFontZoom = { current: currentFontZoom, apply: applyFontZoom, set: setFontZoom };
+window.KnowOriginFontZoom = { current: currentFontZoom, apply: applyFontZoom, set: setFontZoom, toPx: fontScaleToPx };
+
+// —— 界面整体缩放（连续，文字 + 间距 + 面板 + 控件一起等比缩放）——
+//    实现：给 <html> 设 CSS zoom。这与浏览器缩放等效，也把 fixed 元素与 top-layer <dialog> 一并缩放
+//    （实测 chromium：zoom=1.5 时 fixed / showModal 的 dialog 都按 1.5 渲染，命中测试也一致）。
+//    ⚠️ zoom 会把「指针坐标 clientX / getBoundingClientRect」变成视觉像素，而 offsetLeft / style.left /
+//    各宽度变量仍是设计像素，两者相差 zoom 倍。凡是用指针位移去设 CSS px 的拖拽，都必须 / koUiScale()
+//    还原成设计像素（面板分隔条、依据栏、侧栏、浮窗拖动等，见各处理器）。
+//    SVG 图谱用 getScreenCTM() 取坐标，实测 CTM 已含 zoom，无需处理。
+const UI_SCALE_STORAGE_KEY = "knoworigin-ui-scale";
+const UI_SCALE_MIN = 0.85;
+const UI_SCALE_MAX = 1.35;
+function clampUiScale(scale) {
+  const n = Number(scale);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, n));
+}
+// 当前界面缩放系数。拖拽处理器用它把「视觉像素位移」换算回「设计像素」。
+function koUiScale() {
+  const v = parseFloat(document.documentElement.style.getPropertyValue("--ui-scale"));
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+function currentUiScale() {
+  try { return clampUiScale(localStorage.getItem(UI_SCALE_STORAGE_KEY)); } catch { return 1; }
+}
+function syncUiScaleControls(scale) {
+  const pct = Math.round(clampUiScale(scale) * 100);
+  const fill = ((pct - UI_SCALE_MIN * 100) / (UI_SCALE_MAX * 100 - UI_SCALE_MIN * 100)) * 100;
+  $$("[data-ui-scale-range]").forEach((input) => {
+    if (input.value !== String(pct)) input.value = String(pct);
+    input.style.setProperty("--pct", `${fill.toFixed(2)}%`);
+  });
+  $$("[data-ui-scale-out]").forEach((out) => { out.textContent = `${pct}%`; });
+}
+function applyUiScale(scale) {
+  const next = clampUiScale(scale);
+  const root = document.documentElement;
+  root.style.setProperty("--ui-scale", String(next));
+  // zoom=1 时清掉属性，避免任何亚像素影响（放大到 1.0 应与从未设置完全一致）
+  if (Math.abs(next - 1) < 0.0001) root.style.removeProperty("zoom");
+  else root.style.zoom = String(next);
+  syncUiScaleControls(next);
+  syncViewportTokens(next);
+  // 广播：zoom 让「设计像素视口」= innerWidth/zoom。贴边定位的浮层（桌宠等）收到后
+  // 要按新视口把自己夹回屏内，否则放大后会被推出右/下边界。
+  document.dispatchEvent(new CustomEvent("knoworigin:ui-scale", { detail: { scale: next } }));
+}
+// 把真实视口（设计像素）写进 --vw / --vh。
+// CSS 的 100vw/100vh 在 zoom 下是「被放大的视口」，弹窗拿它算尺寸会撑出屏外；
+// 这里给全库一个「缩放安全」的视口尺寸来源。
+function syncViewportTokens(scale) {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const root = document.documentElement;
+  root.style.setProperty("--vw", (window.innerWidth / s) + "px");
+  root.style.setProperty("--vh", (window.innerHeight / s) + "px");
+  // 1% 单位：供 calc(88 * var(--vhi)) 这类写法使用
+  root.style.setProperty("--vwi", (window.innerWidth / s / 100) + "px");
+  root.style.setProperty("--vhi", (window.innerHeight / s / 100) + "px");
+}
+window.addEventListener("resize", () => syncViewportTokens(koUiScale()), { passive: true });
+function setUiScale(scale) {
+  const next = clampUiScale(scale);
+  try { localStorage.setItem(UI_SCALE_STORAGE_KEY, String(next)); } catch {}
+  applyUiScale(next);
+}
+window.KnowOriginUiScale = { current: currentUiScale, apply: applyUiScale, set: setUiScale, scale: koUiScale };
 
 // —— 声效（Web Audio 合成，无外部资源） ——
 const SOUND_STORAGE_KEY = "knoworigin-sound";
@@ -397,6 +475,7 @@ applyUi(currentUi());
 applyTheme(currentTheme());
 applyBrand(currentBrand());
 applyFontZoom(currentFontZoom());
+applyUiScale(currentUiScale());
 applyGlow(currentGlow());
 
 // defer 脚本通常会等 DOMContentLoaded，但外部浏览器扩展、缓存脚本或某个
@@ -724,10 +803,10 @@ function syncSettingsUI() {
   $$(".settings-segmented-btn[data-brand-value]").forEach((btn) => {
     btn.setAttribute("aria-pressed", String(btn.dataset.brandValue === brand));
   });
-  const fontZoom = window.KnowOriginFontZoom ? window.KnowOriginFontZoom.current() : "1";
-  $$(".settings-segmented-btn[data-font-zoom-value]").forEach((btn) => {
-    btn.setAttribute("aria-pressed", String(btn.dataset.fontZoomValue === fontZoom));
-  });
+  const fontZoom = window.KnowOriginFontZoom ? window.KnowOriginFontZoom.current() : 1;
+  syncFontZoomControls(fontZoom);
+  const uiScale = window.KnowOriginUiScale ? window.KnowOriginUiScale.current() : 1;
+  syncUiScaleControls(uiScale);
   syncGlowSegments(window.KnowOriginCardGlow ? window.KnowOriginCardGlow.current() : "off");
   const petEnabled = window.KnowOriginPet ? window.KnowOriginPet.isEnabled() : true;
   const petToggle = $("#settings-pet-toggle");
@@ -817,9 +896,17 @@ function setupSettings() {
   $$(".settings-segmented-btn[data-brand-value]").forEach((btn) => btn.addEventListener("click", () => {
     window.KnowOriginBrand?.set(btn.dataset.brandValue);
   }));
-  $$(".settings-segmented-btn[data-font-zoom-value]").forEach((btn) => btn.addEventListener("click", () => {
-    window.KnowOriginFontZoom?.set(btn.dataset.fontZoomValue);
-  }));
+  // 连续滑块：界面大小（%）与字体大小（px）。input 实时生效，change（松手）才落盘。
+  $$("[data-ui-scale-range]").forEach((input) => {
+    input.addEventListener("input", () => window.KnowOriginUiScale?.apply(Number(input.value) / 100));
+    input.addEventListener("change", () => window.KnowOriginUiScale?.set(Number(input.value) / 100));
+    input.addEventListener("dblclick", () => window.KnowOriginUiScale?.set(1));
+  });
+  $$("[data-font-size-range]").forEach((input) => {
+    input.addEventListener("input", () => window.KnowOriginFontZoom?.apply(Number(input.value) / FONT_BASE_PX));
+    input.addEventListener("change", () => window.KnowOriginFontZoom?.set(Number(input.value) / FONT_BASE_PX));
+    input.addEventListener("dblclick", () => window.KnowOriginFontZoom?.set(FONT_PX_DEFAULT / FONT_BASE_PX));
+  });
   $$(".settings-segmented-btn[data-glow-value]").forEach((btn) => btn.addEventListener("click", () => {
     window.KnowOriginCardGlow?.set(btn.dataset.glowValue);
   }));
@@ -1156,13 +1243,16 @@ function startPanelResize(event) {
   const workspace = $(".workspace");
   const start = currentPanelWidths();
   const startX = event.clientX;
+  // 界面整体缩放（html zoom）下，指针位移是「视觉像素」，而面板宽度是「设计像素」，
+  // 两者相差 zoom 倍 —— 位移必须先除回来，否则拖拽会比指针快/慢。
+  const uiScale = koUiScale();
   handle.classList.add("is-active");
   workspace.classList.add(`resizing-${side}`);
   document.body.classList.add("is-resizing");
 
   const move = (moveEvent) => {
     if (moveEvent.pointerId !== event.pointerId) return;
-    const delta = moveEvent.clientX - startX;
+    const delta = (moveEvent.clientX - startX) / uiScale;
     if (side === "left") {
       const pairWidth = start.left + start.center;
       const left = clamp(start.left + delta, PANEL_LIMITS.left, pairWidth - PANEL_LIMITS.center);
@@ -1270,15 +1360,19 @@ function updatePanelResizeFeedback(available, left, right) {
 function currentPanelWidths() {
   const workspace = $(".workspace");
   const available = availablePanelWidth(workspace);
-  const left = Math.round($(".sources-panel").getBoundingClientRect().width);
-  const right = Math.round($(".studio-panel").getBoundingClientRect().width);
+  // rect 是视觉像素、--left/right-panel-width 是设计像素：统一除回设计像素（界面整体缩放时）。
+  const scale = koUiScale();
+  const left = Math.round($(".sources-panel").getBoundingClientRect().width / scale);
+  const right = Math.round($(".studio-panel").getBoundingClientRect().width / scale);
   return { left, center: Math.max(0, available - left - right), right };
 }
 
 function availablePanelWidth(workspace) {
   const style = getComputedStyle(workspace);
   const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-  const resizers = $$(".panel-resizer").reduce((total, item) => total + item.getBoundingClientRect().width, 0);
+  // clientWidth 与 padding 是设计像素，分隔条 rect 是视觉像素 —— 先除回设计像素再相减。
+  const scale = koUiScale();
+  const resizers = $$(".panel-resizer").reduce((total, item) => total + item.getBoundingClientRect().width / scale, 0);
   return Math.max(0, workspace.clientWidth - padding - resizers);
 }
 
@@ -2409,8 +2503,17 @@ function resetProjectDeleteDialog() {
 }
 
 function projectLabel(project) {
-  const year = (project.year || "").trim();
-  return year ? `${year} · ${project.subject}` : project.subject;
+  // 兜底：projectLabel 是顶栏 / 项目切换器 / 删除弹窗共用的**格式化**函数，
+  // 它一抛，整屏就只剩一条错误条（工作台连渲染都进不去）。所以这里绝不允许抛：
+  // 拿不到 project 对象时回落到项目切换器里那份快照，再退到中性文案。
+  // （真实触发过：项目详情响应里没有 project 键 → 顶部弹
+  //   Cannot read properties of undefined (reading 'year')。见 selectProject 的守卫。）
+  const p = project && typeof project === "object"
+    ? project
+    : (state.projects || []).find((item) => item && item.project_id === state.currentProjectId) || {};
+  const year = String(p.year || "").trim();
+  const subject = String(p.subject || p.name || "").trim();
+  return year ? `${year} · ${subject}` : (subject || "当前课程");
 }
 
 function selectFiles(event) {
@@ -2838,6 +2941,14 @@ async function selectProject(projectId) {
     const data = await api(`/api/projects/${encodeURIComponent(projectId)}`);
     // 单个字段不对最多是空态，不能整屏崩 —— 这里统一兜底
     const payload = data && typeof data === "object" ? data : {};
+    // 但**整个 project 都没有**就不是「缺个字段」了：这份响应根本不是项目详情
+    //（网关/静态兜底把 HTML 回成了 200、服务半途重启、路由没注册…都长这样）。
+    // 这时如实报错并给「重试」，别静默渲染成一个空项目 —— 用户会以为自己的资料没了。
+    // 之前没这条守卫时，下面 projectLabel(payload.project) 直接抛 TypeError，
+    // 用户看到的是 "Cannot read properties of undefined (reading 'year')"。
+    if (!payload.project) {
+      throw new Error("项目数据没有读回来（响应不完整，缺少 project 字段），请重试。");
+    }
     state.currentProjectId = projectId;
     rememberProjectId(projectId);
     // 从 localStorage 恢复文本高亮（存在本页/会话刷新都会丢，所以读取失败不能抛）
@@ -4462,7 +4573,8 @@ function evidenceKindStyle(kind) {
 /** 上限同时受自身封顶与「对话区至少 EVIDENCE_CHAT_MIN」两条约束。 */
 function evidenceWidthMax() {
   const ws = document.getElementById("workspace");
-  const available = ws ? ws.getBoundingClientRect().width : 0;
+  // rect 是视觉像素，而宽度上下限是设计像素 —— 先除回设计像素再比。
+  const available = ws ? ws.getBoundingClientRect().width / koUiScale() : 0;
   if (available <= 0) return EVIDENCE_WIDTH_MAX;
   const railAndSessions = 56 + 256;
   return Math.max(EVIDENCE_WIDTH_MIN,
@@ -4898,12 +5010,14 @@ function bindEvidenceResizer() {
     handle.classList.add("is-dragging");
     document.body.classList.add("is-evidence-resizing");
     const startX = event.clientX;
-    const startW = panel.getBoundingClientRect().width;
+    // rect 是视觉像素、--evidence-w 是设计像素：起点宽度先除回设计像素，位移同理（见 koUiScale）。
+    const uiScale = koUiScale();
+    const startW = panel.getBoundingClientRect().width / uiScale;
     // 面板贴着 workspace 右缘：往左拖变宽，所以用起点减位移
     let target = startW;
     const onMove = (move) => {
       if (move.pointerId !== event.pointerId) return;
-      target = startW + (startX - move.clientX);
+      target = startW + (startX - move.clientX) / uiScale;
       setEvidenceWidth(target, { persist: false, broadcast: false });
     };
     const onUp = () => {
@@ -10062,8 +10176,12 @@ function kbFlowInit(container) {
         const rect = el.getBoundingClientRect();
         const wrect = wrap.getBoundingClientRect();
         const startX = e.clientX, startY = e.clientY;
-        const startLeft = rect.left - wrect.left;
-        const startTop = rect.top - wrect.top;
+        // rect / clientX 是视觉像素，而 style.left/top 是设计像素：起点与位移都除回设计像素。
+        const uiScale = koUiScale();
+        const startLeft = (rect.left - wrect.left) / uiScale;
+        const startTop = (rect.top - wrect.top) / uiScale;
+        const limitLeft = (wrect.width - rect.width) / uiScale;
+        const limitTop = (wrect.height - rect.height) / uiScale;
         let dragging = false;
         const onMove = (ev) => {
           if (!dragging) {
@@ -10076,8 +10194,8 @@ function kbFlowInit(container) {
             el.classList.add("is-dragging");
             try { el.setPointerCapture(ev.pointerId); } catch (_) {}
           }
-          const nx = Math.max(0, Math.min(startLeft + (ev.clientX - startX), wrect.width - rect.width));
-          const ny = Math.max(0, Math.min(startTop + (ev.clientY - startY), wrect.height - rect.height));
+          const nx = Math.max(0, Math.min(startLeft + (ev.clientX - startX) / uiScale, limitLeft));
+          const ny = Math.max(0, Math.min(startTop + (ev.clientY - startY) / uiScale, limitTop));
           el.style.left = `${nx}px`;
           el.style.top = `${ny}px`;
         };

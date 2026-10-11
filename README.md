@@ -180,9 +180,14 @@ PDF 优先走文本层提取（PyMuPDF + pdfplumber），扫描版或图片型�
 框架另有一档**全屏沉浸视图「神经图谱」**：把「总览 → 模块 → 单条 → 分析栏」四层显式化——中心一颗光球是整份材料，顶层节点化作模块环绕游动；点模块，它的下级节点向右**伞状展开**；点条目，右侧滑出该节点的掌握度、上下级、知识点文档，并能**就地就这一节问 AI**。每一层只回答一个问题，`Esc` 与面包屑逐层退回；底部另有不调模型、秒出结构化事实的「图谱速览」。
 
 <p align="center">
-  <img src="screenshots/神经图谱.png" alt="神经图谱：中心光球 + 顶层模块环绕，选中模块向右伞状展开到下级节点，右侧分析栏给出该节点的一句话把握、承接与递进、定义与推导" width="94%">
+  <img src="screenshots/神经图谱.png" alt="神经图谱 · 总览：中心光球是整份材料，顶层模块环绕游动，左栏是目录索引与节点 / 模块 / 已学 / 待推进计数" width="94%">
 </p>
-<p align="center"><sub><b>神经图谱</b>：光球总览 → 点模块 → 下级节点伞状展开 → 右侧分析栏（含该节点的知识点文档与就地提问）。</sub></p>
+<p align="center"><sub><b>神经图谱 · 总览</b>：中心光球是整份材料，四周环绕它的顶层模块；左栏目录索引列出每个模块的下级节点数。</sub></p>
+
+<p align="center">
+  <img src="screenshots/神经图谱-节点分析.png" alt="神经图谱 · 节点分析：选中模块向右伞状展开到下级节点，右侧分析栏给出该节点的掌握度、上下级、知识点文档与一句话把握" width="94%">
+</p>
+<p align="center"><sub><b>神经图谱 · 节点分析</b>：点模块 → 下级节点伞状展开 → 右侧分析栏给出掌握度、同级 / 下级节点、知识点文档与「一句话把握」，并可就地就这一节问 AI。</sub></p>
 
 > 它是纯前端增强层：脚本排在 `app.js` 之后、只读它的顶层状态，删掉 `index.html` 里两行即完全回退。
 
@@ -330,13 +335,18 @@ PDF 优先走文本层提取（PyMuPDF + pdfplumber），扫描版或图片型�
 读论文时，公式、图表、术语、引用关系堆在一起。顶部点「文章阅读」进入论文精读环境：导入 PDF 后自动做版面重排与公式修复，划词即可**高亮 / 翻译 / AI 解释 / 记笔记**，关键图表自动解释，全文中英对照，三栏同步推进。
 
 - **AI 解释公式 / 图表** —— 自动解释符号含义、推导过程、实验流程与数据趋势
+- **相关原文定位** —— 一句提问或一个关键词，直接把原文里最相关的段落连**页码与相对置信度**列出来（黄色越深越相关），拖阈值筛、按「原文顺序 / 相关性」排，点一条就跳到原页对应位置并框出来。扫描件会明说「没有文字层」，不给一个空列表充数
 - **全文翻译** —— 中英对照呈现，保留公式与图表位置；划词即可单独翻译
 - **文献管理** —— 「我的文献」集中管理已导入论文，保留阅读进度
 
 > **精读不是孤岛：从「文章阅读」导入的每一篇论文，同时就是主界面里的一个项目。** 返回主界面后，它与课件导入的项目享有同一套能力——生成知识框架、出卡片与小测验、对话问答、沉淀笔记、排进学习台历，一样不少；顶部的项目列表实时同步，删除论文也会同步移除。**读论文起手，走完的仍是知源完整的学习主线。**
 
 <p align="center">
-  <img src="screenshots/literature-reading.png" alt="文献精读：划词高亮、翻译与 AI 解释" width="88%">
+  <img src="screenshots/文献库.png" alt="文献库：导入的论文集中管理，在库 / 在读 / 已读 / 待抽取状态一目了然，支持多文献对比" width="88%">
+</p>
+
+<p align="center">
+  <img src="screenshots/整页对照-译文.png" alt="整页对照·译文阅读：原页与译文并排联动，相关原文定位带页码与相对置信度，划词即可高亮 / AI 解释 / 记笔记" width="88%">
 </p>
 
 对比与溯源能力同样内建：勾选多篇论文可生成「研究问题 / 方法 / 贡献 / 结果 / 局限」对照表，整理助手随后通读知识库，找出**知识空白、可直接引用的论断、资料之间的张力**，每条都给出处；**来源视图**把「资料 → 概念」画成二部图，多源共同支撑的概念高亮为交叉验证，孤证提示需要补来源。
@@ -369,7 +379,7 @@ PDF 优先走文本层提取（PyMuPDF + pdfplumber），扫描版或图片型�
 
 | 布局 | 形态 |
 | --- | --- |
-| **Agent 工作台**（默认） | 左侧图标栏（知识框架 / 学习概览 / 知识卡片 / 小测验 / 我的笔记 / 英语词汇 / 文章阅读 / 设置）+ 项目与会话侧栏（**两层树**，项目行右侧一键进该项目的知识文档）+ 整屏对话区。学习产出与项目资料都以浮层呈现，助手回答不装气泡、直接落在纸面上。 |
+| **Agent 工作台**（默认） | 左侧图标栏（知识框架 / 学习概览 / 知识卡片 / 小测验 / 我的笔记 / 英语词汇 / 文章阅读 / 设置 / 全屏）+ 项目与会话侧栏（**两层树**，项目行右侧一键进该项目的知识文档）+ 整屏对话区。学习产出与项目资料都以浮层呈现，助手回答不装气泡、直接落在纸面上。 |
 | 学术极简 | 窄侧栏 + 长文阅读式的框架视图，冷蓝配色。 |
 | 经典工作台 | 传统左资料 / 中对话 / 右产出三栏。 |
 
@@ -568,6 +578,7 @@ PDF 优先走文本层提取（PyMuPDF + pdfplumber），扫描版或图片型�
 │   ├── index.html           # 单页骨架；新功能 = 新增一个 js + 加一行 <script>
 │   ├── app.js               # 主应用：状态、渲染、事件、Agent 工具循环、回答依据面板（约 1.8 万行）
 │   ├── agent-shell.js       # Agent 工作台外壳：图标栏 / 项目与会话侧栏 / 浮层交互（必须在 app.js 之后加载）
+│   ├── fullscreen-ui.js     # 全屏显示：图标栏一键把整个界面铺满屏幕（复用 .agent-rail-btn 样式，零新 CSS）
 │   ├── styles.css           # 全部基础样式（约 1.4 万行）
 │   ├── agent-layout.css     # Agent 工作台布局：7 列主栅格 + 依据栏第 4 列 + 冷蓝配色
 │   ├── classic-palette.css  # classic 浅色配色回退层（由 tools/build_classic_palette.py 生成，勿手改）
@@ -592,7 +603,8 @@ PDF 优先走文本层提取（PyMuPDF + pdfplumber），扫描版或图片型�
 │   ├── wx-feed-ui.js / course-autocomplete.js / vault-export-ui.js / prompt-lab.js
 │   ├── service-worker.js    # 已退役：只做旧缓存清扫与反注册，不再缓存任何资源
 │   ├── manifest.webmanifest · styles-literature.css · admin.*
-│   ├── vendor/              # 第三方：KaTeX + 字体（本地化，断网可用）
+│   ├── vendor/              # 第三方：KaTeX + 字体（本地化，断网可用）；
+│   │                        #   neural-creator-dashboard/ 是神经图谱的两个视频素材 + 上游许可原文
 │   └── img/                 # 形象与背景图（img/hxt/ 下是桌宠帧图）
 │
 ├── screenshots/             # README 配图
@@ -696,8 +708,8 @@ PDF 优先走文本层提取（PyMuPDF + pdfplumber），扫描版或图片型�
 | [py-fsrs](https://github.com/open-spaced-repetition/py-fsrs)（实现见 `core/english_vocab.py`） | FSRS 间隔重复调度 | MIT，Copyright (c) 2022 Open Spaced Repetition |
 | [ECDICT](https://github.com/skywind3000/ECDICT)（生成 `data/english/*.json`） | 内置英语词库数据 | MIT，Copyright (c) 2025 Linwei |
 | [superpung/TJU-CourseSharing](https://github.com/superpung/TJU-CourseSharing)（生成 `core/tju_courses.py`） | 天大课程**元数据**（编号 / 名称 / 学科） | CC BY-NC-SA 4.0 |
+| [YiLight0/paperfocus](https://github.com/YiLight0/paperfocus)（算法移植，见 `core/lit_evidence.py`） | 文献「相关原文」的相对置信度折算公式与选段思路 | MIT |
 | [trafilatura](https://github.com/adbar/trafilatura) / [beautifulsoup4](https://www.crummy.com/software/BeautifulSoup/) / [lxml](https://lxml.de/) | 校园信源网页正文抽取 | Apache-2.0 / MIT / BSD-3-Clause |
-| [luoluo-121/neural-creator-dashboard](https://github.com/luoluo-121/neural-creator-dashboard)（**未随仓库分发**） | UI 设计借鉴（三层递进交互 / 银灰+香槟金配色 / 背景神经网络），以知源自身技术栈重写 | **PolyForm Noncommercial 1.0.0**（未取用其代码与视频素材） |
 
 说明与取舍：
 
