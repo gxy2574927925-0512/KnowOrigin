@@ -132,6 +132,19 @@ cp .env.example .env          # Windows 用 copy
 python -m uvicorn api_server:app --app-dir src --host 0.0.0.0 --port 17321
 ```
 
+### 克隆下来是什么状态（干净默认态）
+
+仓库里**不含任何密钥、也不含任何个人数据**——克隆下来就是一份干净模板：
+
+- 服务起来后 `data/` 会自动建好（SQLite、英文词库、上传目录都在里面），不需要手动准备任何文件；
+- 首次进入是一个**空工作区**：没有项目、没有资料、没有对话记录，输入框上方有一条引导条提示「现在是本地模式」；
+- 点引导条上的**「去填写」**（或右上角齿轮 → **API 设置**）粘贴你自己在 [ai.tju.edu.cn](https://ai.tju.edu.cn) 个人中心拿到的密钥即可。
+
+密钥只有两个落点：根目录的 `.env`，或 `data/local_api_config.json`（Windows 上用 DPAPI 加密、绑定当前账户）。**两者都在 `.gitignore` 里，永远不会进仓库。**
+
+> 没填密钥也能先把界面跑起来：问答会返回内置的使用说明，其余 AI 功能会明确提示「请先配置模型密钥」，不会静默失败。
+> `data/` 的完整说明见 [`data/README.md`](data/README.md)。
+
 ### 三步上手
 
 1. **导入** —— 把这门课的课件 / 讲义丢进来（或粘贴一段文字）。
@@ -609,7 +622,7 @@ PDF 优先走文本层提取（PyMuPDF + pdfplumber），扫描版或图片型�
 │
 ├── screenshots/             # README 配图
 │
-├── data/                    # 运行时数据：SQLite、上传资料、订阅库（gitignore）
+├── data/                    # 运行时数据：SQLite、上传资料、订阅库（gitignore；说明见 data/README.md）
 ├── logs/                    # 运行日志与调试产物（gitignore）
 └── .venv311/                # 虚拟环境（gitignore，换机器自动重建，不用拷）
 ```

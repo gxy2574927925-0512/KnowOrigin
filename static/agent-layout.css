@@ -414,11 +414,26 @@ html[data-ui="agent"] .composer::before {
 }
 
 /* ---- 「试试这样问」：顶栏最右的小药丸 + 可拖动 + 右键菜单 ---- */
-/* 行位要显式钉死，否则它一脱流，对话就会被自动排布顶到第一行 */
-html[data-ui="agent"] .agent-panel { grid-template-rows: auto 1fr auto; }
+/* 行位要显式钉死，否则它一脱流，对话就会被自动排布顶到第一行。
+   四行 = 顶栏 / 对话(1fr) / 首次启动引导条 / 输入框：
+   引导条没显示时是 display:none（不算 grid item），第三行 auto 塌成 0，观感与原三行一致。 */
+html[data-ui="agent"] .agent-panel { grid-template-rows: auto 1fr auto auto; }
 html[data-ui="agent"] .agent-header   { grid-row: 1; }
 html[data-ui="agent"] .conversation   { grid-row: 2; }
-html[data-ui="agent"] .composer       { grid-row: 3; }
+html[data-ui="agent"] .firstrun-guide { grid-row: 3; }
+html[data-ui="agent"] .composer       { grid-row: 4; }
+
+/* 首次启动引导条：与输入框同宽同边距，落在「对话 → 输入框」之间。
+   ⚠️ 输入框上方那条 40px 渐隐（.composer::before）本意是让对话淡入输入区，
+   引导条一旦出现正好被它盖住下半截，所以引导条可见时把它关掉。 */
+html[data-ui="agent"] .firstrun-guide {
+  width: calc(100% - 40px);
+  max-width: 808px;
+  margin: 0 auto 8px;
+}
+html[data-ui="agent"] .agent-panel:has(.firstrun-guide:not(.hidden)) .composer::before {
+  display: none;
+}
 
 html[data-ui="agent"] .suggested-questions {
   position: absolute; top: 7px; right: 12px; left: auto;

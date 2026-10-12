@@ -14141,3 +14141,83 @@ html[data-theme="dark"] .kb-fold { background: #26221c; border-color: #3a352c; }
 html[data-theme="dark"] .kb-discuss-scaffold .mini-button:hover { background: #2c3a2a; color: #9fd08b; }
 .discussion-reply-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .discussion-reply-actions .discussion-input { flex: 1 1 220px; min-width: 0; }
+/* ============================================================================
+   首次启动引导条（未配置模型 API Key 时显示在输入框上方）
+   —— 干净默认态的一部分：克隆下来第一眼就看得见「去哪儿填 Key」，
+      而不是把提示藏在「设置 → API 设置」里让新用户自己找。
+   作用域锁在 .firstrun-guide 前缀，不复用全局 .btn/.panel，避免污染其他模块。
+   颜色全部走主题变量，浅色/深色自动适配。
+   ========================================================================== */
+.firstrun-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 24px 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: 12px;
+  background: var(--gold-soft, rgba(212, 168, 67, 0.14));
+  color: var(--ink);
+}
+.firstrun-guide.hidden { display: none; }
+
+.firstrun-guide-icon {
+  flex: 0 0 auto;
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.5;
+  color: var(--gold);
+}
+
+.firstrun-guide-body { flex: 1 1 auto; min-width: 0; }
+
+.firstrun-guide-title {
+  margin: 0 0 3px;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.firstrun-guide-text {
+  margin: 0;
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.65;
+  color: var(--muted);
+}
+.firstrun-guide-text strong { color: var(--ink); font-weight: 700; }
+.firstrun-guide-text a { color: var(--green-dark); text-decoration: underline; }
+
+.firstrun-guide-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+}
+
+.firstrun-guide-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.firstrun-guide-btn:hover { border-color: var(--green); color: var(--green-dark); }
+.firstrun-guide-btn.is-primary {
+  border-color: transparent;
+  background: var(--green);
+  color: #fff;
+}
+.firstrun-guide-btn.is-primary:hover { background: var(--green-dark); color: #fff; }
+
+/* 窄屏：按钮换到下一行，别把文案挤成一列单字 */
+@media (max-width: 720px) {
+  .firstrun-guide { flex-wrap: wrap; margin: 0 16px 10px; }
+  .firstrun-guide-actions { width: 100%; justify-content: flex-end; }
+}

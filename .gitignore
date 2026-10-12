@@ -10,6 +10,7 @@ snippet_competition_key.json
 # 运行时数据不入库；唯一例外是英文词库（clone 即用必需，见 core/english_dict.py）
 data/*
 !data/english/
+!data/README.md
 data/english/*
 !data/english/basic.json
 !data/english/decks.json

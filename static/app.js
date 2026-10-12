@@ -514,6 +514,8 @@ async function init() {
   await step("初始化提问导轨", () => initQuestionRail());
   // 绑定设置项（含模型 API 与密钥）：把用户填过的密钥带进后台，防止切换表单模式时丢状态
   await step("同步密钥", () => syncStoredCredentials());
+  // 首次启动引导：把「未配置模型密钥」这件事摆到首屏（干净克隆的第一眼就该看到）
+  await step("初始化首次启动引导", () => setupFirstRunGuide());
   // 检查后台在线与打卡阈值：决定界面禁用还是放行
   await step("检查服务健康", () => checkHealth());
   await step("加载会话与项目", () => loadSession());
@@ -2008,10 +2010,47 @@ async function checkHealth() {
   try {
     const health = await api("/api/health");
     updateHealthStatus(health.model_configured ? "AI 服务已配置" : "本地模式 · 点此填入自己的 API Key", true);
+    syncFirstRunGuide(Boolean(health.model_configured));
   } catch (error) {
     updateHealthStatus("本地服务不可用", false);
+    syncFirstRunGuide(null);   // 服务不可用时不弹「去填 Key」，那会把人指错方向
     showError(error, checkHealth);
   }
+}
+
+// —— 首次启动引导条：未配置模型密钥时，把「去哪儿填 Key」摆在首屏 ——
+// 为什么需要它：健康状态那句「本地模式 · 点此填入自己的 API Key」原本只长在
+// 「设置」面板里，而刚克隆仓库的人落地就是空工作区 —— 首屏没有任何地方告诉他
+// 「AI 功能需要先配一把自己的密钥」，只能自己翻设置找。
+// 关闭状态记在 localStorage：点过「稍后」就不再打扰；一旦配好 Key 自动消失。
+const FIRSTRUN_GUIDE_DISMISS_KEY = "knoworigin-firstrun-api-guide-dismissed";
+
+function firstRunGuideDismissed() {
+  try {
+    return localStorage.getItem(FIRSTRUN_GUIDE_DISMISS_KEY) === "1";
+  } catch {
+    return false;   // 隐私模式 / 存储被禁用：降级为「每次都提示」，不报错
+  }
+}
+
+// configured：true=已配好（隐藏） / false=没配（显示） / null=未知（先隐藏，别误伤已配好的人）
+function syncFirstRunGuide(configured) {
+  const box = $("#firstrun-guide");
+  if (!box) return;
+  const show = configured === false && !firstRunGuideDismissed();
+  box.classList.toggle("hidden", !show);
+}
+
+function setupFirstRunGuide() {
+  $("#firstrun-guide-open")?.addEventListener("click", () => openApiConfig());
+  $("#firstrun-guide-dismiss")?.addEventListener("click", () => {
+    try {
+      localStorage.setItem(FIRSTRUN_GUIDE_DISMISS_KEY, "1");
+    } catch { /* 存不下也无妨，本次会话内隐藏即可 */ }
+    syncFirstRunGuide(false);
+  });
+  // 健康检查回来之前不猜：先隐藏，避免已配好 Key 的人闪一下提示条。
+  syncFirstRunGuide(null);
 }
 
 function updateHealthStatus(text, ready) {
@@ -2202,6 +2241,7 @@ async function saveApiConfig(event) {
     });
     state.apiConfig = { ...saved, local_editable: true };
     updateHealthStatus(saved.model_configured ? "AI 服务已配置" : "本地模式 · 点此填入自己的 API Key", true);
+    syncFirstRunGuide(Boolean(saved.model_configured));
     feedback.textContent = saved.message;
     feedback.className = "config-feedback is-success";
   } catch (error) {

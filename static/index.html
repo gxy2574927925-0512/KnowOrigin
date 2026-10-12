@@ -18,14 +18,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="知源">
-<link rel="stylesheet" href="/static/styles.css?v=20261010-ui-scale-v3">
+<link rel="stylesheet" href="/static/styles.css?v=20261012-firstrun-guide">
 <link rel="stylesheet" href="/static/styles-passport.css?v=20261010-ui-scale-v3">
   <!-- classic 浅色配色回退层：必须排在 styles.css 之后，才能压住被迁到 token 的暖色。
        只带 html[data-ui="classic"]:where(:not([data-theme="dark"])) 作用域，深色下让位给
        styles.css 的 html[data-theme="dark"] 规则（否则 classic 深色 = 白底浅字）。 -->
     <link rel="stylesheet" href="/static/classic-palette.css?v=20261005-morandi1">
     <!-- Agent 工作台布局：必须排在 styles.css 之后，才能靠加载顺序覆盖它 -->
-    <link rel="stylesheet" href="/static/agent-layout.css?v=20261010-ui-scale-v3">
+    <link rel="stylesheet" href="/static/agent-layout.css?v=20261012-firstrun-guide">
   <link rel="stylesheet" href="/static/styles-literature.css?v=20261011-cross-hl-v1">
   <!-- 文献精读 · 整页对照翻译（版式保真）：右栏译文页图。删掉这行即完全回退。 -->
   <link rel="stylesheet" href="/static/styles-pdf-spread.css?v=20261011-cross-hl-v1">
@@ -358,6 +358,27 @@
         <div id="suggested-questions-list" class="suggested-questions-list"></div>
       </div>
       <button id="suggested-restore" class="suggested-restore" type="button" hidden>💡 推荐问题已隐藏，点击恢复</button>
+
+      <!-- 首次启动引导：未配置模型密钥时首屏可见，直接指向「设置 → API 设置」。
+           配好后自动消失；点「稍后」永久关闭（localStorage）。
+           ⚠️ 必须是 #agent-panel 的直接子节点、且排在 #conversation 之后：
+           .agent-panel 是 grid-template-rows: auto 1fr auto，插在中间会把 1fr 抢走；
+           放进 #conversation 又会被切项目时的 innerHTML="" 抹掉。 -->
+      <div id="firstrun-guide" class="firstrun-guide hidden" role="status" aria-live="polite" data-firstrun-guide>
+        <span class="firstrun-guide-icon" aria-hidden="true">✦</span>
+        <div class="firstrun-guide-body">
+          <p class="firstrun-guide-title">本地模式 · 还没填模型 API Key</p>
+          <p class="firstrun-guide-text">
+            问答、生成知识框架、精读翻译这些能力需要你自己的一把密钥（在
+            <a href="https://ai.tju.edu.cn" target="_blank" rel="noopener noreferrer">ai.tju.edu.cn</a>
+            个人中心获取）。密钥加密保存在这台机器上，<strong>不进仓库，也不会上传给别人</strong>。
+          </p>
+        </div>
+        <div class="firstrun-guide-actions">
+          <button id="firstrun-guide-open" class="firstrun-guide-btn is-primary" type="button">去填写</button>
+          <button id="firstrun-guide-dismiss" class="firstrun-guide-btn" type="button">稍后</button>
+        </div>
+      </div>
 
       <form id="composer" class="composer">
         <div id="problem-image-preview" class="problem-image-preview hidden" aria-live="polite"></div>
@@ -1475,7 +1496,7 @@
   <!-- 语义护照组件：必须排在 app.js 之前 —— 它是 IIFE，加载即挂 window.KBPassport，
        而 app.js 的图谱渲染会直接调它。 -->
   <script src="/static/kb-passport-ui.js?v=20261010-ui-scale-v3" defer></script>
-  <script src="/static/app.js?v=20261010-ui-scale-v3" defer></script>
+  <script src="/static/app.js?v=20261012-firstrun-guide" defer></script>
   <script src="/static/kb-flow-pulse.js?v=20261008-pulse-v3-meteor" defer></script>
   <script src="/static/kb-tree-flow.js?v=20261008-tree-flow-v2" defer></script>
   <!-- 神经图谱（沉浸式知识图谱）：必须排在 app.js 之后 —— classic script 共享全局词法环境，
